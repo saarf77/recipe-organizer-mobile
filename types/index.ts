@@ -11,6 +11,7 @@ export type SyncStatus = 'pending' | 'in_progress' | 'failed' | 'done';
 export interface Profile {
   id: string;
   display_name: string;
+  email?: string;
   avatar_url: string | null;
   created_at: string;
 }
@@ -170,4 +171,5 @@ export interface RecipeFilters {
   difficulty: Difficulty | null;
   is_favorite: boolean;
   group_id: string | null;
+  dietary: string[];
 }

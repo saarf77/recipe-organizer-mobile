@@ -5,6 +5,7 @@
  */
 
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
 import { OCRResult } from '@/types';
 import { supabase } from './supabaseClient';
 
@@ -67,17 +68,9 @@ async function onDeviceOCR(imageUri: string): Promise<OCRResult | null> {
 
 async function serverOCR(imageUri: string, source: OCRResult['source']): Promise<OCRResult | null> {
   try {
-    // Convert local uri to blob
-    const response = await fetch(imageUri);
-    const blob = await response.blob();
-    const base64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        resolve(result.split(',')[1] ?? '');
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
+    // Read the local file as base64 using expo-file-system (FileReader is web-only)
+    const base64 = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
     });
 
     const { data, error } = await supabase.functions.invoke('ocr-extract', {

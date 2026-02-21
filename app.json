@@ -35,7 +35,7 @@
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro",
-      "output": "static"
+      "output": "single"
     },
     "plugins": [
       "expo-router",
@@ -51,7 +51,9 @@
         {
           "photosPermission": "Allow Recipe Organizer to access your photos."
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-sqlite"
     ],
     "scheme": "recipeorganizer",
     "experiments": {

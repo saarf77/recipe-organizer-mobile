@@ -22,7 +22,7 @@ const STEP_SECTION_HEADERS = /^(?:(?:preparation\s+)?(?:method|instructions?|dir
 
 const NUMBERED_STEP = /^\s*(?:\d+[\.\):]|\*|-)\s+(.+)/;
 const INGREDIENT_LINE =
-  /^[\*\-•·]?\s*(?:(\d+(?:[\/\.,]\d+)?(?:\s+\d+\/\d+)?)\s+)?((?:cup|tbsp|tablespoon|tsp|teaspoon|oz|ounce|lb|pound|kg|g|gram|ml|liter|l|pinch|dash|handful|bunch|clove|slice|piece|can|package|pkg|head|stalk)s?)?\s*)(.+)/i;
+  /^[\*\-•·]?\s*(?:(\d+(?:[\/\.,]\d+)?(?:\s+\d+\/\d+)?)\s+)?((?:cup|tbsp|tablespoon|tsp|teaspoon|oz|ounce|lb|pound|kg|g|gram|ml|liter|l|pinch|dash|handful|bunch|clove|slice|piece|can|package|pkg|head|stalk)s?\s*)?(.+)/i;
 
 const FRACTION_MAP: Record<string, number> = {
   '½': 0.5, '⅓': 0.333, '¼': 0.25, '¾': 0.75,
@@ -130,12 +130,8 @@ export function detectIngredientLines(text: string): Omit<Ingredient, 'id' | 're
       break; // left ingredient section
     }
 
-    if (!inSection && !/^\d/.test(line)) {
-      // try to auto-detect ingredient lines even without a header
-      // heuristic: short lines with qty/unit keywords
-    }
 
-    if (inSection || true) {
+    if (inSection) {
       const match = INGREDIENT_LINE.exec(line);
       if (match) {
         const qtyRaw = match[1]?.trim() ?? null;

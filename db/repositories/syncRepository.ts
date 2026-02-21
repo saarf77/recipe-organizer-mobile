@@ -17,12 +17,12 @@ export const syncRepository = {
     );
   },
 
-  async getPending(limit = 50): Promise<SyncQueueItem[]> {
+  async getPending(maxRetries = 5, limit = 50): Promise<SyncQueueItem[]> {
     const db = await getDatabase();
     return db.getAllAsync<SyncQueueItem>(
-      `SELECT * FROM sync_queue WHERE status IN ('pending','failed') AND retry_count < 5
+      `SELECT * FROM sync_queue WHERE status IN ('pending','failed') AND retry_count < ?
        ORDER BY created_at ASC LIMIT ?`,
-      [limit]
+      [maxRetries, limit]
     );
   },
 
@@ -97,10 +97,11 @@ export const syncRepository = {
     );
   },
 
-  async getPendingCount(): Promise<number> {
+  async getPendingCount(maxRetries = 5): Promise<number> {
     const db = await getDatabase();
     const row = await db.getFirstAsync<{ count: number }>(
-      "SELECT COUNT(*) as count FROM sync_queue WHERE status IN ('pending','failed') AND retry_count < 5"
+      `SELECT COUNT(*) as count FROM sync_queue WHERE status IN ('pending','failed') AND retry_count < ?`,
+      [maxRetries]
     );
     return row?.count ?? 0;
   },

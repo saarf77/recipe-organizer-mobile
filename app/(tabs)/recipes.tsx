@@ -1,37 +1,57 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, Platform,
+  StyleSheet, Dimensions, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useRecipeStore } from '@/features/recipes/recipeStore';
 import RecipeCard from '@/components/RecipeCard';
-import SkeletonCard from '@/components/ui/SkeletonCard';
 import { Recipe, Difficulty } from '@/types';
+import { Colors, Spacing, Radii, FontFamily, FontSize, Shadows } from '@/constants';
 
-const DIFFICULTY_OPTIONS: Array<{ label: string; value: Difficulty | null }> = [
-  { label: 'All', value: null },
-  { label: 'Easy', value: 'easy' },
-  { label: 'Medium', value: 'medium' },
-  { label: 'Hard', value: 'hard' },
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const COL_GAP = 10;
+const H_PADDING = 16;
+const GRID_ITEM_WIDTH = (SCREEN_WIDTH - H_PADDING * 2 - COL_GAP) / 2;
+
+const DIFFICULTY_OPTIONS: Array<{ label: string; value: Difficulty | null; emoji: string }> = [
+  { label: 'All',    value: null,     emoji: '✨' },
+  { label: 'Easy',   value: 'easy',   emoji: '🟢' },
+  { label: 'Medium', value: 'medium', emoji: '🟡' },
+  { label: 'Hard',   value: 'hard',   emoji: '🔴' },
+];
+
+const DIETARY_OPTIONS: Array<{ label: string; value: string; emoji: string }> = [
+  { label: 'Vegan',       value: 'vegan',       emoji: '🌱' },
+  { label: 'Vegetarian',  value: 'vegetarian',  emoji: '🥦' },
+  { label: 'Gluten-free', value: 'gluten-free', emoji: '🌾' },
+  { label: 'Dairy-free',  value: 'dairy-free',  emoji: '🥛' },
+  { label: 'Keto',        value: 'keto',        emoji: '🥩' },
+  { label: 'Paleo',       value: 'paleo',       emoji: '🦴' },
 ];
 
 export default function RecipesScreen() {
   const params = useLocalSearchParams<{ category?: string }>();
   const {
     recipes, isLoading, categories,
-    filters, setFilter, loadAll, loadCategories,
+    filters, setFilter, loadAll, loadCategories, deleteRecipe,
+    ingredientSearchResults, ingredientSearchTerm, searchByIngredient,
   } = useRecipeStore();
 
   const [showFilters, setShowFilters] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [searchMode, setSearchMode] = useState<'title' | 'ingredient'>('title');
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     loadAll();
     loadCategories();
-  }, []);
+  }, []));
 
   useEffect(() => {
     if (params.category) {
@@ -39,118 +59,363 @@ export default function RecipesScreen() {
     }
   }, [params.category]);
 
-  const onSearch = useCallback((text: string) => setFilter('search', text), []);
+  const searchValue = searchMode === 'ingredient' ? ingredientSearchTerm : filters.search;
+  // When in ingredient mode with no search term, show the full recipe list instead of empty
+  const displayRecipes = (searchMode === 'ingredient' && ingredientSearchTerm.trim())
+    ? ingredientSearchResults
+    : recipes;
+
+  // Exit select mode when recipes list changes significantly
+  useEffect(() => {
+    if (selectMode && displayRecipes.length === 0) {
+      setSelectMode(false);
+      setSelectedIds(new Set());
+    }
+  }, [displayRecipes.length]);
+
+  const onSearch = useCallback((text: string) => {
+    if (searchMode === 'ingredient') {
+      void searchByIngredient(text);
+    } else {
+      setFilter('search', text);
+    }
+  }, [searchMode, searchByIngredient, setFilter]);
+
+  const handleSwitchSearchMode = useCallback((mode: 'title' | 'ingredient') => {
+    setSearchMode(mode);
+    // Clear the other mode's state and refresh
+    if (mode === 'ingredient') {
+      setFilter('search', '');
+    } else {
+      void searchByIngredient('');
+      void loadAll();
+    }
+    Haptics.selectionAsync();
+  }, [setFilter, searchByIngredient, loadAll]);
+
+  const toggleDietary = useCallback((value: string) => {
+    const current = filters.dietary ?? [];
+    const next = current.includes(value)
+      ? current.filter((d) => d !== value)
+      : [...current, value];
+    setFilter('dietary', next);
+  }, [filters.dietary, setFilter]);
+
+  const toggleSelectMode = useCallback(() => {
+    setSelectMode((v) => {
+      if (v) setSelectedIds(new Set());
+      return !v;
+    });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, []);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    Haptics.selectionAsync();
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    if (selectedIds.size === displayRecipes.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayRecipes.map((r) => r.id)));
+    }
+    Haptics.selectionAsync();
+  }, [displayRecipes, selectedIds.size]);
+
+  const handleBulkDelete = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    Alert.alert(
+      `Delete ${selectedIds.size} recipe${selectedIds.size !== 1 ? 's' : ''}?`,
+      'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setIsDeleting(true);
+            const ids = Array.from(selectedIds);
+            const errors: string[] = [];
+            for (const id of ids) {
+              try { await deleteRecipe(id); }
+              catch (e) { errors.push(e instanceof Error ? e.message : String(e)); }
+            }
+            setIsDeleting(false);
+            setSelectMode(false);
+            setSelectedIds(new Set());
+            if (errors.length > 0) {
+              Alert.alert('Some deletions failed', errors.join('\n'));
+            }
+          },
+        },
+      ],
+    );
+  }, [selectedIds, deleteRecipe]);
+
+  const activeFilterCount = [
+    filters.difficulty !== null,
+    filters.category !== null,
+    filters.is_favorite,
+    (filters.dietary?.length ?? 0) > 0,
+  ].filter(Boolean).length;
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Top bar */}
+      {/* ─── Top bar ────────────────────────────────────────────────────────── */}
       <View style={styles.topBar}>
         <Text style={styles.title}>Recipes</Text>
-        <TouchableOpacity
-          style={[styles.filterToggle, showFilters && styles.filterToggleActive]}
-          onPress={() => setShowFilters((v) => !v)}
-          accessibilityLabel="Toggle filters"
-        >
-          <Ionicons name="options-outline" size={20} color={showFilters ? '#f97316' : '#475569'} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Search */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search-outline" size={18} color="#94a3b8" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search recipes or ingredients..."
-          placeholderTextColor="#94a3b8"
-          value={filters.search}
-          onChangeText={onSearch}
-          returnKeyType="search"
-          accessibilityLabel="Search recipes"
-        />
-        {filters.search.length > 0 && (
-          <TouchableOpacity onPress={() => setFilter('search', '')}>
-            <Ionicons name="close-circle" size={18} color="#94a3b8" />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Filters panel */}
-      {showFilters && (
-        <View style={styles.filtersPanel}>
-          {/* Difficulty */}
-          <Text style={styles.filterLabel}>Difficulty</Text>
-          <View style={styles.chipRow}>
-            {DIFFICULTY_OPTIONS.map((opt) => (
+        <View style={styles.topBarActions}>
+          {selectMode ? (
+            <>
               <TouchableOpacity
-                key={String(opt.value)}
-                style={[styles.chip, filters.difficulty === opt.value && styles.chipActive]}
-                onPress={() => setFilter('difficulty', opt.value)}
-                accessibilityRole="button"
+                style={styles.selectAllBtn}
+                onPress={handleSelectAll}
               >
-                <Text style={[styles.chipText, filters.difficulty === opt.value && styles.chipTextActive]}>
-                  {opt.label}
+                <Text style={styles.selectAllText}>
+                  {selectedIds.size === displayRecipes.length ? 'Deselect all' : 'Select all'}
                 </Text>
               </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Categories */}
-          <Text style={styles.filterLabel}>Category</Text>
-          <View style={styles.chipRow}>
-            <TouchableOpacity
-              style={[styles.chip, filters.category === null && styles.chipActive]}
-              onPress={() => setFilter('category', null)}
-            >
-              <Text style={[styles.chipText, filters.category === null && styles.chipTextActive]}>All</Text>
-            </TouchableOpacity>
-            {categories.map((cat) => (
               <TouchableOpacity
-                key={cat}
-                style={[styles.chip, filters.category === cat && styles.chipActive]}
-                onPress={() => setFilter('category', cat)}
+                style={[styles.deleteSelectedBtn, selectedIds.size === 0 && styles.deleteSelectedBtnDisabled]}
+                onPress={handleBulkDelete}
+                disabled={selectedIds.size === 0 || isDeleting}
               >
-                <Text style={[styles.chipText, filters.category === cat && styles.chipTextActive]}>{cat}</Text>
+                <Ionicons name="trash-outline" size={18} color={selectedIds.size === 0 ? Colors.textFaint : Colors.danger} />
+                {selectedIds.size > 0 && <Text style={styles.deleteSelectedCount}>{selectedIds.size}</Text>}
               </TouchableOpacity>
-            ))}
+              <TouchableOpacity style={styles.cancelSelectBtn} onPress={toggleSelectMode}>
+                <Text style={styles.cancelSelectText}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={styles.selectModeBtn}
+                onPress={toggleSelectMode}
+                accessibilityLabel="Select recipes"
+              >
+                <Ionicons name="checkmark-circle-outline" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.filterToggle, showFilters && styles.filterToggleActive]}
+                onPress={() => setShowFilters((v) => !v)}
+                accessibilityLabel="Toggle filters"
+              >
+                <Ionicons name="options-outline" size={20} color={showFilters ? Colors.primary : Colors.textSecondary} />
+                {activeFilterCount > 0 && (
+                  <View style={styles.filterBadge}>
+                    <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+
+      {/* ─── Search ─────────────────────────────────────────────────────────── */}
+      {!selectMode && (
+        <>
+          <View style={styles.searchModeRow}>
+            <TouchableOpacity
+              style={[styles.searchModeBtn, searchMode === 'title' && styles.searchModeBtnActive]}
+              onPress={() => handleSwitchSearchMode('title')}
+              accessibilityRole="button"
+              accessibilityLabel="Search by title"
+            >
+              <Ionicons name="text-outline" size={13} color={searchMode === 'title' ? Colors.primary : Colors.textFaint} />
+              <Text style={[styles.searchModeBtnText, searchMode === 'title' && styles.searchModeBtnTextActive]}>By Title</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.searchModeBtn, searchMode === 'ingredient' && styles.searchModeBtnActive]}
+              onPress={() => handleSwitchSearchMode('ingredient')}
+              accessibilityRole="button"
+              accessibilityLabel="Search by ingredient"
+            >
+              <Ionicons name="leaf-outline" size={13} color={searchMode === 'ingredient' ? Colors.primary : Colors.textFaint} />
+              <Text style={[styles.searchModeBtnText, searchMode === 'ingredient' && styles.searchModeBtnTextActive]}>By Ingredient</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.searchContainer}>
+            <Ionicons name="search-outline" size={18} color={Colors.textFaint} style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder={searchMode === 'ingredient' ? 'e.g. garlic, chicken...' : 'Search recipes...'}
+              placeholderTextColor={Colors.textFaint}
+              value={searchValue}
+              onChangeText={onSearch}
+              returnKeyType="search"
+              accessibilityLabel={searchMode === 'ingredient' ? 'Search by ingredient' : 'Search recipes'}
+            />
+            {searchValue.length > 0 && (
+              <TouchableOpacity
+                onPress={() => onSearch('')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close-circle" size={18} color={Colors.textFaint} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </>
+      )}
+
+      {/* ─── Filters panel ──────────────────────────────────────────────────── */}
+      {showFilters && !selectMode && (
+        <View style={styles.filtersPanel}>
+          <View style={styles.filterSection}>
+            <Text style={styles.filterLabel}>Difficulty</Text>
+            <View style={styles.chipRow}>
+              {DIFFICULTY_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={String(opt.value)}
+                  style={[styles.chip, filters.difficulty === opt.value && styles.chipActive]}
+                  onPress={() => setFilter('difficulty', opt.value)}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.chipEmoji}>{opt.emoji}</Text>
+                  <Text style={[styles.chipText, filters.difficulty === opt.value && styles.chipTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
 
-          {/* Favorites toggle */}
+          <View style={styles.filterSection}>
+            <Text style={styles.filterLabel}>Dietary</Text>
+            <View style={styles.chipRow}>
+              {DIETARY_OPTIONS.map((opt) => {
+                const active = (filters.dietary ?? []).includes(opt.value);
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => toggleDietary(opt.value)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.chipEmoji}>{opt.emoji}</Text>
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {categories.length > 0 && (
+            <View style={styles.filterSection}>
+              <Text style={styles.filterLabel}>Category</Text>
+              <View style={styles.chipRow}>
+                <TouchableOpacity
+                  style={[styles.chip, filters.category === null && styles.chipActive]}
+                  onPress={() => setFilter('category', null)}
+                >
+                  <Text style={[styles.chipText, filters.category === null && styles.chipTextActive]}>All</Text>
+                </TouchableOpacity>
+                {categories.map((cat) => (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[styles.chip, filters.category === cat && styles.chipActive]}
+                    onPress={() => setFilter('category', cat)}
+                  >
+                    <Text style={[styles.chipText, filters.category === cat && styles.chipTextActive]}>{cat}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
           <TouchableOpacity
-            style={styles.favToggle}
+            style={[styles.favToggle, filters.is_favorite && styles.favToggleActive]}
             onPress={() => setFilter('is_favorite', !filters.is_favorite)}
           >
             <Ionicons
               name={filters.is_favorite ? 'heart' : 'heart-outline'}
-              size={18}
-              color={filters.is_favorite ? '#f97316' : '#475569'}
+              size={16}
+              color={filters.is_favorite ? Colors.bgWhite : Colors.primary}
             />
-            <Text style={[styles.favToggleText, filters.is_favorite && styles.favToggleActive]}>
+            <Text style={[styles.favToggleText, filters.is_favorite && styles.favToggleTextActive]}>
               Favorites only
             </Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* List */}
+      {/* ─── Select mode banner ─────────────────────────────────────────────── */}
+      {selectMode && (
+        <View style={styles.selectBanner}>
+          <Text style={styles.selectBannerText}>
+            {selectedIds.size === 0 ? 'Tap recipes to select' : `${selectedIds.size} selected`}
+          </Text>
+        </View>
+      )}
+
+      {/* ─── Recipe count ───────────────────────────────────────────────────── */}
+      {!isLoading && displayRecipes.length > 0 && !selectMode && (
+        <Text style={styles.countText}>
+          {displayRecipes.length} recipe{displayRecipes.length !== 1 ? 's' : ''}
+          {searchMode === 'ingredient' && ingredientSearchTerm ? ` with "${ingredientSearchTerm}"` : ''}
+        </Text>
+      )}
+
+      {/* ─── Grid list ──────────────────────────────────────────────────────── */}
       {isLoading ? (
         <View style={styles.skeletonGrid}>
-          {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} />)}
+          {[0, 1, 2, 3].map((i) => (
+            <View key={i} style={[styles.skeletonCard, { width: GRID_ITEM_WIDTH }]} />
+          ))}
         </View>
       ) : (
         <FlashList
-          data={recipes}
+          data={displayRecipes}
           estimatedItemSize={180}
           keyExtractor={(item) => item.id}
-          numColumns={1}
-          renderItem={({ item }: { item: Recipe }) => (
-            <RecipeCard recipe={item} variant="vertical" />
-          )}
+          numColumns={2}
+          renderItem={({ item }: { item: Recipe }) => {
+            const isSelected = selectedIds.has(item.id);
+            return (
+              <TouchableOpacity
+                style={[styles.gridItemWrap, isSelected && styles.gridItemSelected]}
+                onPress={selectMode ? () => toggleSelect(item.id) : undefined}
+                onLongPress={!selectMode ? () => { setSelectMode(true); toggleSelect(item.id); } : undefined}
+                activeOpacity={selectMode ? 0.7 : 1}
+              >
+                {selectMode && (
+                  <View style={[styles.selectionOverlay, isSelected && styles.selectionOverlayActive]}>
+                    <View style={[styles.selectionCircle, isSelected && styles.selectionCircleActive]}>
+                      {isSelected && <Ionicons name="checkmark" size={14} color={Colors.bgWhite} />}
+                    </View>
+                  </View>
+                )}
+                <RecipeCard recipe={item} variant="grid" />
+              </TouchableOpacity>
+            );
+          }}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>🍽</Text>
+              <Text style={styles.emptyIcon}>🔍</Text>
               <Text style={styles.emptyTitle}>No recipes found</Text>
-              <Text style={styles.emptySubtitle}>Try adjusting your filters</Text>
+              <Text style={styles.emptySubtitle}>Try adjusting your filters or search</Text>
+              {activeFilterCount > 0 && (
+                <TouchableOpacity
+                  style={styles.clearFiltersBtn}
+                  onPress={() => {
+                    setFilter('difficulty', null);
+                    setFilter('category', null);
+                    setFilter('is_favorite', false);
+                    setFilter('search', '');
+                    setFilter('dietary', []);
+                  }}
+                >
+                  <Text style={styles.clearFiltersBtnText}>Clear filters</Text>
+                </TouchableOpacity>
+              )}
             </View>
           }
         />
@@ -160,28 +425,218 @@ export default function RecipesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
-  title: { fontSize: 28, fontFamily: 'Inter_700Bold', color: '#0f172a' },
-  filterToggle: { padding: 10, borderRadius: 10, backgroundColor: '#f1f5f9', minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
-  filterToggleActive: { backgroundColor: '#fff7ed' },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', marginHorizontal: 16, marginVertical: 8, borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: '#e2e8f0', minHeight: 48 },
-  searchIcon: { marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 15, fontFamily: 'Inter_400Regular', color: '#0f172a', paddingVertical: 0 },
-  filtersPanel: { backgroundColor: '#ffffff', marginHorizontal: 16, borderRadius: 14, padding: 16, marginBottom: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 3 },
-  filterLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#475569', marginBottom: 8, marginTop: 4 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f1f5f9', minHeight: 36 },
-  chipActive: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#f97316' },
-  chipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#475569' },
-  chipTextActive: { color: '#f97316' },
-  favToggle: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, minHeight: 44 },
-  favToggleText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: '#475569' },
-  favToggleActive: { color: '#f97316' },
-  listContent: { paddingHorizontal: 16, paddingBottom: 120 },
-  skeletonGrid: { padding: 16, gap: 12 },
-  empty: { alignItems: 'center', paddingTop: 80 },
-  emptyIcon: { fontSize: 48, marginBottom: 12 },
-  emptyTitle: { fontSize: 18, fontFamily: 'Inter_600SemiBold', color: '#0f172a' },
-  emptySubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: '#94a3b8', marginTop: 4 },
+  container: { flex: 1, backgroundColor: Colors.bgSurface },
+
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: H_PADDING,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xs,
+  },
+  title: { fontSize: 28, fontFamily: FontFamily.bold, color: Colors.textPrimary },
+  topBarActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+
+  filterToggle: {
+    padding: Spacing.sm + 2,
+    borderRadius: Radii.md,
+    backgroundColor: Colors.bgMuted,
+    minHeight: 44,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterToggleActive: { backgroundColor: Colors.primaryBg },
+  filterBadge: {
+    position: 'absolute',
+    top: Spacing.md / 2,
+    right: Spacing.md / 2,
+    width: 16,
+    height: 16,
+    borderRadius: Radii.full,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterBadgeText: { fontSize: 9, fontFamily: FontFamily.bold, color: Colors.bgWhite },
+
+  selectModeBtn: {
+    padding: Spacing.sm + 2,
+    borderRadius: Radii.md,
+    backgroundColor: Colors.bgMuted,
+    minHeight: 44,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Bulk select toolbar
+  selectAllBtn: {
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderRadius: Spacing.sm + 2, backgroundColor: Colors.bgMuted,
+  },
+  selectAllText: { fontSize: FontSize.sm.size - 1, fontFamily: FontFamily.medium, color: Colors.textSecondary },
+  deleteSelectedBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderRadius: Spacing.sm + 2, backgroundColor: '#fee2e2',
+    minHeight: 40,
+  },
+  deleteSelectedBtnDisabled: { backgroundColor: Colors.bgMuted },
+  deleteSelectedCount: { fontSize: FontSize.sm.size, fontFamily: FontFamily.bold, color: Colors.danger },
+  cancelSelectBtn: {
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderRadius: Spacing.sm + 2, backgroundColor: Colors.primary,
+  },
+  cancelSelectText: { fontSize: FontSize.sm.size - 1, fontFamily: FontFamily.semibold, color: Colors.bgWhite },
+
+  selectBanner: {
+    backgroundColor: Colors.primaryBg, marginHorizontal: H_PADDING, marginBottom: Spacing.sm,
+    paddingHorizontal: 14, paddingVertical: Spacing.sm, borderRadius: Spacing.sm + 2,
+    borderWidth: 1, borderColor: Colors.primaryBorder,
+  },
+  selectBannerText: { fontSize: FontSize.sm.size - 1, fontFamily: FontFamily.medium, color: Colors.primary, textAlign: 'center' },
+
+  searchModeRow: {
+    flexDirection: 'row',
+    marginHorizontal: H_PADDING,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+    gap: Spacing.sm,
+  },
+  searchModeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: Radii.full,
+    backgroundColor: Colors.bgMuted,
+    minHeight: 34,
+  },
+  searchModeBtnActive: {
+    backgroundColor: Colors.primaryBg,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+  },
+  searchModeBtnText: {
+    fontSize: FontSize.sm.size - 1,
+    fontFamily: FontFamily.medium,
+    color: Colors.textFaint,
+  },
+  searchModeBtnTextActive: {
+    color: Colors.primary,
+    fontFamily: FontFamily.semibold,
+  },
+
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.bgWhite,
+    marginHorizontal: H_PADDING,
+    marginVertical: Spacing.sm,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    minHeight: 50,
+    ...Shadows.card,
+  },
+  searchIcon: { marginRight: Spacing.sm },
+  searchInput: { flex: 1, fontSize: 15, fontFamily: FontFamily.regular, color: Colors.textPrimary, paddingVertical: 0 },
+
+  filtersPanel: {
+    backgroundColor: Colors.bgWhite,
+    marginHorizontal: H_PADDING,
+    borderRadius: Radii.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.sm,
+    ...Shadows.card,
+    gap: Spacing.md,
+  },
+  filterSection: { gap: Spacing.sm },
+  filterLabel: { fontSize: FontSize.xs.size, fontFamily: FontFamily.bold, color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.6 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md / 2 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 7,
+    borderRadius: Radii.full,
+    backgroundColor: Colors.bgMuted,
+    minHeight: 34,
+  },
+  chipActive: { backgroundColor: Colors.primaryBg, borderWidth: 1.5, borderColor: Colors.primary },
+  chipEmoji: { fontSize: 11 },
+  chipText: { fontSize: FontSize.sm.size - 1, fontFamily: FontFamily.medium, color: Colors.textSecondary },
+  chipTextActive: { color: Colors.primary, fontFamily: FontFamily.semibold },
+  favToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.primaryBg,
+    borderWidth: 1.5,
+    borderColor: Colors.primaryBorder,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: Radii.md,
+    alignSelf: 'flex-start',
+  },
+  favToggleActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  favToggleText: { fontSize: FontSize.sm.size, fontFamily: FontFamily.medium, color: Colors.primary },
+  favToggleTextActive: { color: Colors.bgWhite, fontFamily: FontFamily.semibold },
+
+  countText: {
+    paddingHorizontal: 20,
+    paddingBottom: Spacing.sm,
+    fontSize: FontSize.sm.size - 1,
+    fontFamily: FontFamily.regular,
+    color: Colors.textFaint,
+  },
+
+  listContent: { paddingHorizontal: H_PADDING, paddingBottom: 120, paddingTop: Spacing.xs },
+  gridItemWrap: { flex: 1, margin: COL_GAP / 2, position: 'relative' },
+  gridItemSelected: { opacity: 0.85 },
+
+  // Selection overlay
+  selectionOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 10, alignItems: 'flex-end', padding: Spacing.sm,
+    borderRadius: Radii.lg, borderWidth: 2.5, borderColor: 'transparent',
+  },
+  selectionOverlayActive: { borderColor: Colors.primary, backgroundColor: 'rgba(56,102,65,0.08)' },
+  selectionCircle: {
+    width: 26, height: 26, borderRadius: 13,
+    borderWidth: 2, borderColor: Colors.border,
+    backgroundColor: Colors.bgWhite,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  selectionCircleActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: H_PADDING,
+    gap: COL_GAP,
+  },
+  skeletonCard: {
+    height: 180,
+    borderRadius: Radii.lg,
+    backgroundColor: Colors.border,
+  },
+
+  empty: { alignItems: 'center', paddingTop: 80, gap: Spacing.sm },
+  emptyIcon: { fontSize: 52, marginBottom: Spacing.xs },
+  emptyTitle: { fontSize: 18, fontFamily: FontFamily.bold, color: Colors.textPrimary },
+  emptySubtitle: { fontSize: FontSize.sm.size, fontFamily: FontFamily.regular, color: Colors.textFaint },
+  clearFiltersBtn: {
+    marginTop: Spacing.md,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: Radii.md,
+  },
+  clearFiltersBtnText: { color: Colors.bgWhite, fontFamily: FontFamily.semibold, fontSize: FontSize.sm.size },
 });

@@ -1,3 +1,5 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Remove browser default focus outline from all inputs — custom focus styles are handled in-component */
+input:focus,
+textarea:focus {
+  outline: none;
+}

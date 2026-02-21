@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useAuthStore } from '@/features/auth/authStore';
 import { Redirect } from 'expo-router';
+import { Colors, FontFamily, FontSize, Shadows } from '@/constants';
 
 function FloatingAddButton() {
   const handlePress = async () => {
@@ -20,7 +21,7 @@ function FloatingAddButton() {
         accessibilityLabel="Add new recipe"
         accessibilityRole="button"
       >
-        <Ionicons name="add" size={28} color="#ffffff" />
+        <Ionicons name="add" size={28} color={Colors.bgWhite} />
       </TouchableOpacity>
     </View>
   );
@@ -36,17 +37,17 @@ export default function TabLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: '#f97316',
-          tabBarInactiveTintColor: '#94a3b8',
+          tabBarActiveTintColor: Colors.primary,
+          tabBarInactiveTintColor: Colors.textFaint,
           tabBarStyle: {
-            backgroundColor: '#ffffff',
-            borderTopColor: '#e2e8f0',
+            backgroundColor: Colors.bgWhite,
+            borderTopColor: Colors.border,
             height: Platform.OS === 'ios' ? 85 : 65,
             paddingBottom: Platform.OS === 'ios' ? 25 : 10,
           },
           tabBarLabelStyle: {
-            fontSize: 12,
-            fontFamily: 'Inter_500Medium',
+            fontSize: FontSize.xs.size,
+            fontFamily: FontFamily.medium,
           },
         }}
       >
@@ -78,6 +79,15 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="shopping"
+          options={{
+            title: 'Shopping',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="cart-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="settings"
           options={{
             title: 'Settings',
@@ -103,13 +113,9 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#f97316',
+    backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#f97316',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 8,
+    ...Shadows.primary,
   },
 });

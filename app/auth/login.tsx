@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/features/auth/authStore';
+import { Colors, Spacing, Radii, FontFamily, FontSize } from '@/constants';
 
 export default function LoginScreen() {
   const { signInWithMagicLink, isLoading } = useAuthStore();
@@ -55,7 +56,7 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             placeholder="you@example.com"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={Colors.textFaint}
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
@@ -75,7 +76,7 @@ export default function LoginScreen() {
             accessibilityLabel="Send magic link"
           >
             {isLoading ? (
-              <ActivityIndicator color="#ffffff" />
+              <ActivityIndicator color={Colors.bgWhite} />
             ) : (
               <Text style={styles.btnText}>Continue with Email</Text>
             )}
@@ -91,27 +92,27 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  inner: { flex: 1, justifyContent: 'center', padding: 24 },
+  container: { flex: 1, backgroundColor: Colors.bgWhite },
+  inner: { flex: 1, justifyContent: 'center', padding: Spacing.xl },
   hero: { alignItems: 'center', marginBottom: 40 },
   logo: { fontSize: 56, marginBottom: 12 },
-  appName: { fontSize: 28, fontFamily: 'Inter_700Bold', color: '#0f172a' },
-  tagline: { fontSize: 15, fontFamily: 'Inter_400Regular', color: '#94a3b8', marginTop: 4 },
+  appName: { fontSize: 28, fontFamily: FontFamily.bold, color: Colors.textPrimary },
+  tagline: { fontSize: 15, fontFamily: FontFamily.regular, color: Colors.textFaint, marginTop: Spacing.xs },
   form: {},
-  label: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#475569', marginBottom: 8 },
-  input: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 14, fontSize: 15, fontFamily: 'Inter_400Regular', color: '#0f172a', minHeight: 52 },
-  error: { color: '#ef4444', fontSize: 13, fontFamily: 'Inter_400Regular', marginTop: 6 },
-  btn: { backgroundColor: '#f97316', borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 16, minHeight: 52, justifyContent: 'center' },
+  label: { fontSize: 14, fontFamily: FontFamily.semibold, color: Colors.textSecondary, marginBottom: Spacing.sm },
+  input: { backgroundColor: Colors.bgSurface, borderWidth: 1, borderColor: Colors.border, borderRadius: 12, padding: 14, fontSize: 15, fontFamily: FontFamily.regular, color: Colors.textPrimary, minHeight: 52 },
+  error: { color: Colors.errorDark, fontSize: 13, fontFamily: FontFamily.regular, marginTop: 6 },
+  btn: { backgroundColor: Colors.primary, borderRadius: Radii.lg, padding: Spacing.lg, alignItems: 'center', marginTop: Spacing.lg, minHeight: 52, justifyContent: 'center' },
   btnDisabled: { opacity: 0.6 },
-  btnText: { color: '#ffffff', fontSize: 16, fontFamily: 'Inter_600SemiBold' },
+  btnText: { color: Colors.bgWhite, fontSize: 16, fontFamily: FontFamily.semibold },
   trustRow: { marginTop: 20, alignItems: 'center' },
-  trustText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: '#94a3b8' },
+  trustText: { fontSize: 13, fontFamily: FontFamily.regular, color: Colors.textFaint },
   // Sent state
   sentWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  sentIcon: { fontSize: 56, marginBottom: 16 },
-  sentTitle: { fontSize: 24, fontFamily: 'Inter_700Bold', color: '#0f172a', marginBottom: 8 },
-  sentSub: { fontSize: 15, fontFamily: 'Inter_400Regular', color: '#475569', textAlign: 'center', lineHeight: 22 },
-  sentEmail: { fontFamily: 'Inter_600SemiBold', color: '#0f172a' },
-  backBtn: { marginTop: 24, padding: 12 },
-  backBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: '#f97316' },
+  sentIcon: { fontSize: 56, marginBottom: Spacing.lg },
+  sentTitle: { fontSize: 24, fontFamily: FontFamily.bold, color: Colors.textPrimary, marginBottom: Spacing.sm },
+  sentSub: { fontSize: 15, fontFamily: FontFamily.regular, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+  sentEmail: { fontFamily: FontFamily.semibold, color: Colors.textPrimary },
+  backBtn: { marginTop: Spacing.xl, padding: Spacing.md },
+  backBtnText: { fontSize: 14, fontFamily: FontFamily.medium, color: Colors.primary },
 });

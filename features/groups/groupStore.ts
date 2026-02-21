@@ -11,9 +11,10 @@ interface GroupStore {
   createGroup: (data: { name: string; editing_mode: EditingMode }) => Promise<Group>;
   updateGroup: (id: string, data: Partial<Group>) => Promise<void>;
   deleteGroup: (id: string) => Promise<void>;
+  joinGroup: (groupId: string) => Promise<{ alreadyMember: boolean; group: Group }>;
 }
 
-export const useGroupStore = create<GroupStore>((set, get) => ({
+export const useGroupStore = create<GroupStore>((set) => ({
   groups: [],
   isLoading: false,
 
@@ -98,5 +99,44 @@ export const useGroupStore = create<GroupStore>((set, get) => ({
   deleteGroup: async (id) => {
     await supabase.from('groups').delete().eq('id', id);
     set((state) => ({ groups: state.groups.filter((g) => g.id !== id) }));
+  },
+
+  joinGroup: async (groupId) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+
+    // Fetch the group first (may not be in local store yet)
+    const { data: groupData, error: groupError } = await supabase
+      .from('groups')
+      .select('*')
+      .eq('id', groupId)
+      .single();
+    if (groupError || !groupData) throw new Error('Group not found or invite link is invalid.');
+
+    // Check if already a member
+    const { data: existing } = await supabase
+      .from('group_members')
+      .select('role')
+      .eq('group_id', groupId)
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+
+    if (existing) {
+      const group: Group = { ...groupData as unknown as Group, my_role: existing.role as Group['my_role'] };
+      return { alreadyMember: true, group };
+    }
+
+    // Insert membership
+    const { error: joinError } = await supabase.from('group_members').insert({
+      group_id: groupId,
+      user_id: session.user.id,
+      role: 'member',
+      joined_at: new Date().toISOString(),
+    });
+    if (joinError) throw new Error(`Failed to join group: ${joinError.message}`);
+
+    const group: Group = { ...groupData as unknown as Group, my_role: 'member', member_count: (groupData.member_count ?? 0) + 1 };
+    set((state) => ({ groups: [...state.groups, group] }));
+    return { alreadyMember: false, group };
   },
 }));

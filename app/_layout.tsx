@@ -13,6 +13,7 @@ import {
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
 import { useAuthStore } from '@/features/auth/authStore';
+import { useSettingsStore } from '@/features/settings/settingsStore';
 import { getDatabase } from '@/db/client';
 import { startBackgroundSync } from '@/services/syncService';
 
@@ -27,11 +28,12 @@ export default function RootLayout() {
   });
 
   const { initialize, isInitialized } = useAuthStore();
+  const { initialize: initializeSettings } = useSettingsStore();
 
   useEffect(() => {
     async function boot() {
       await getDatabase();
-      await initialize();
+      await Promise.all([initialize(), initializeSettings()]);
     }
     boot();
   }, []);
@@ -60,10 +62,13 @@ export default function RootLayout() {
           <Stack.Screen name="auth/callback" />
           <Stack.Screen name="recipe/[id]" options={{ presentation: 'card' }} />
           <Stack.Screen name="recipe/new" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="recipe/import-url" options={{ presentation: 'modal' }} />
           <Stack.Screen name="recipe/edit/[id]" options={{ presentation: 'modal' }} />
           <Stack.Screen name="ocr/review" options={{ presentation: 'modal' }} />
           <Stack.Screen name="group/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="group/join" options={{ presentation: 'modal' }} />
           <Stack.Screen name="group/new" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="collection/list" options={{ presentation: 'card' }} />
           <Stack.Screen name="collection/[id]" options={{ presentation: 'card' }} />
         </Stack>
       </SafeAreaProvider>

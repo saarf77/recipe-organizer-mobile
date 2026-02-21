@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useGroupStore } from '@/features/groups/groupStore';
 import { EditingMode } from '@/types';
+import { Colors, Spacing, Radii, FontFamily } from '@/constants';
 
 export default function NewGroupScreen() {
   const { createGroup, isLoading } = useGroupStore();
@@ -23,7 +24,7 @@ export default function NewGroupScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.navbar}>
         <TouchableOpacity onPress={() => router.back()} style={styles.navBtn}>
-          <Ionicons name="close" size={24} color="#0f172a" />
+          <Ionicons name="close" size={24} color={Colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.navTitle}>New Group</Text>
         <View style={{ width: 40 }} />
@@ -36,7 +37,7 @@ export default function NewGroupScreen() {
           value={name}
           onChangeText={setName}
           placeholder="e.g. Family Recipes"
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={Colors.textFaint}
           autoFocus
           accessibilityLabel="Group name"
         />
@@ -52,7 +53,7 @@ export default function NewGroupScreen() {
         >
           <View style={styles.modeHeader}>
             <Text style={[styles.modeTitle, editingMode === 'strict' && styles.modeTitleActive]}>Strict</Text>
-            {editingMode === 'strict' && <Ionicons name="checkmark-circle" size={20} color="#f97316" />}
+            {editingMode === 'strict' && <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />}
           </View>
           <Text style={styles.modeDesc}>Members can only edit their own recipes. Admins can edit any.</Text>
         </TouchableOpacity>
@@ -65,7 +66,7 @@ export default function NewGroupScreen() {
         >
           <View style={styles.modeHeader}>
             <Text style={[styles.modeTitle, editingMode === 'collaborative' && styles.modeTitleActive]}>Collaborative</Text>
-            {editingMode === 'collaborative' && <Ionicons name="checkmark-circle" size={20} color="#f97316" />}
+            {editingMode === 'collaborative' && <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />}
           </View>
           <Text style={styles.modeDesc}>All members can edit recipes. Viewers are read-only.</Text>
         </TouchableOpacity>
@@ -77,7 +78,7 @@ export default function NewGroupScreen() {
           accessibilityRole="button"
           accessibilityLabel="Create group"
         >
-          {isLoading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.createBtnText}>Create Group</Text>}
+          {isLoading ? <ActivityIndicator color={Colors.bgWhite} /> : <Text style={styles.createBtnText}>Create Group</Text>}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -85,21 +86,21 @@ export default function NewGroupScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  navbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  container: { flex: 1, backgroundColor: Colors.bgWhite },
+  navbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Colors.bgMuted },
   navBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  navTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#0f172a' },
+  navTitle: { fontSize: 17, fontFamily: FontFamily.semibold, color: Colors.textPrimary },
   content: { padding: 20 },
-  label: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#475569', marginBottom: 8, marginTop: 16 },
-  input: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 14, fontSize: 15, fontFamily: 'Inter_400Regular', color: '#0f172a', minHeight: 52 },
-  error: { color: '#ef4444', fontSize: 13, fontFamily: 'Inter_400Regular', marginTop: 6 },
-  modeCard: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 14, padding: 16, marginBottom: 12 },
-  modeCardActive: { borderColor: '#f97316', backgroundColor: '#fff7ed' },
+  label: { fontSize: 14, fontFamily: FontFamily.semibold, color: Colors.textSecondary, marginBottom: Spacing.sm, marginTop: Spacing.lg },
+  input: { backgroundColor: Colors.bgSurface, borderWidth: 1, borderColor: Colors.border, borderRadius: Radii.md, padding: 14, fontSize: 15, fontFamily: FontFamily.regular, color: Colors.textPrimary, minHeight: 52 },
+  error: { color: '#ef4444', fontSize: 13, fontFamily: FontFamily.regular, marginTop: 6 },
+  modeCard: { backgroundColor: Colors.bgSurface, borderWidth: 1, borderColor: Colors.border, borderRadius: Radii.lg, padding: Spacing.lg, marginBottom: Spacing.md },
+  modeCardActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryBg },
   modeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  modeTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#475569' },
-  modeTitleActive: { color: '#f97316' },
-  modeDesc: { fontSize: 13, fontFamily: 'Inter_400Regular', color: '#94a3b8', lineHeight: 18 },
-  createBtn: { backgroundColor: '#f97316', borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 24, minHeight: 52 },
+  modeTitle: { fontSize: 16, fontFamily: FontFamily.semibold, color: Colors.textSecondary },
+  modeTitleActive: { color: Colors.primary },
+  modeDesc: { fontSize: 13, fontFamily: FontFamily.regular, color: Colors.textFaint, lineHeight: 18 },
+  createBtn: { backgroundColor: Colors.primary, borderRadius: Radii.lg, padding: Spacing.lg, alignItems: 'center', marginTop: Spacing.xl, minHeight: 52 },
   btnDisabled: { opacity: 0.6 },
-  createBtnText: { color: '#ffffff', fontSize: 16, fontFamily: 'Inter_600SemiBold' },
+  createBtnText: { color: Colors.bgWhite, fontSize: 16, fontFamily: FontFamily.semibold },
 });

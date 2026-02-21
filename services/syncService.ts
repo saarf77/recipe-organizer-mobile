@@ -44,14 +44,15 @@ async function pushItem(item: SyncQueueItem): Promise<void> {
 
 // ─── Pull (remote → local) ────────────────────────────────────────────────────
 
-async function pullRecipes(since: string | null): Promise<void> {
+async function pullRecipes(since: string | null): Promise<number> {
   let query = supabase.from('recipes').select('*');
   if (since) query = query.gt('updated_at', since);
 
   const { data, error } = await query;
   if (error) throw error;
-  if (!data) return;
+  if (!data) return 0;
 
+  let count = 0;
   for (const remote of data) {
     // conflict check: local row with same id and newer updated_at
     const local = await recipeRepository.findById(remote.id);
@@ -70,7 +71,10 @@ async function pullRecipes(since: string | null): Promise<void> {
 
     const { data: stps } = await supabase.from('steps').select('*').eq('recipe_id', remote.id);
     if (stps) await stepRepository.upsertMany(remote.id, stps);
+
+    count++;
   }
+  return count;
 }
 
 // ─── Main Sync Loop ───────────────────────────────────────────────────────────
@@ -90,8 +94,8 @@ export async function runSync(): Promise<{ pushed: number; pulled: number; error
   let pulled = 0;
 
   try {
-    // 1) Push pending items
-    const pending = await syncRepository.getPending();
+    // 1) Push pending items (respect MAX_RETRIES threshold)
+    const pending = await syncRepository.getPending(MAX_RETRIES);
     for (const item of pending) {
       try {
         await pushItem(item);
@@ -103,8 +107,7 @@ export async function runSync(): Promise<{ pushed: number; pulled: number; error
 
     // 2) Pull remote changes
     const lastSyncAt = await syncRepository.getLastSyncAt();
-    await pullRecipes(lastSyncAt);
-    pulled++;
+    pulled += await pullRecipes(lastSyncAt);
 
     // 3) Update lastSyncAt
     await syncRepository.setLastSyncAt(new Date().toISOString());

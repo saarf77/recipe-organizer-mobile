@@ -8,16 +8,16 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { useRecipeStore } from '@/features/recipes/recipeStore';
 import { useAuthStore } from '@/features/auth/authStore';
 import RecipeCard from '@/components/RecipeCard';
 import SkeletonCard from '@/components/ui/SkeletonCard';
 import { FlashList } from '@shopify/flash-list';
 import { Recipe } from '@/types';
-
-const QUICK_FILTERS = ['Breakfast', 'Lunch', 'Dinner', 'Desserts', 'Snacks', 'Drinks'];
+import { Colors, Spacing, Radii, FontFamily, FontSize, Shadows, HOME_CATEGORIES } from '@/constants';
 
 export default function HomeScreen() {
   const { user } = useAuthStore();
@@ -28,15 +28,14 @@ export default function HomeScreen() {
     loadRecent,
     loadFavorites,
     loadRandom,
-    randomRecipe,
   } = useRecipeStore();
 
   const [refreshing, setRefreshing] = React.useState(false);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     loadRecent();
     loadFavorites();
-  }, []);
+  }, []));
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -45,13 +44,14 @@ export default function HomeScreen() {
   }, []);
 
   const handleRandomRecipe = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await loadRandom();
-    if (randomRecipe) router.push(`/recipe/${randomRecipe.id}`);
+    const picked = useRecipeStore.getState().randomRecipe;
+    if (picked) router.push(`/recipe/${picked.id}`);
   };
 
-  const handleFilterPress = (filter: string) => {
-    router.push({ pathname: '/(tabs)/recipes', params: { category: filter } });
+  const handleCategoryPress = (label: string) => {
+    router.push({ pathname: '/(tabs)/recipes', params: { category: label } });
   };
 
   const greeting = (): string => {
@@ -64,49 +64,101 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#f97316" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
-        {/* Header */}
+        {/* ─── Header ─────────────────────────────────────────────────────────── */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{greeting()},</Text>
+          <View style={styles.headerLeft}>
+            <Text style={styles.greeting}>{greeting()}</Text>
             <Text style={styles.name}>{user?.display_name ?? 'Chef'} 👋</Text>
+            <Text style={styles.subtitle}>What are you cooking today?</Text>
           </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.randomBtn}
+              onPress={handleRandomRecipe}
+              accessibilityLabel="Get a random recipe"
+            >
+              <Text style={styles.randomBtnIcon}>🎲</Text>
+              <Text style={styles.randomBtnText}>Surprise me</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ─── Quick search shortcut ───────────────────────────────────────────── */}
+        <TouchableOpacity
+          style={styles.searchBar}
+          onPress={() => router.push('/(tabs)/recipes')}
+          accessibilityRole="button"
+          accessibilityLabel="Search recipes"
+        >
+          <Ionicons name="search-outline" size={18} color={Colors.textFaint} />
+          <Text style={styles.searchPlaceholder}>Search recipes, ingredients...</Text>
+        </TouchableOpacity>
+
+        {/* ─── Categories ─────────────────────────────────────────────────────── */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Categories</Text>
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryRow}
+        >
+          {HOME_CATEGORIES.map((cat) => (
+            <TouchableOpacity
+              key={cat.label}
+              style={[styles.categoryTile, { backgroundColor: cat.bg }]}
+              onPress={() => handleCategoryPress(cat.label)}
+              accessibilityRole="button"
+              accessibilityLabel={`Browse ${cat.label}`}
+            >
+              <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
+              <Text style={[styles.categoryLabel, { color: cat.accent }]}>{cat.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* ─── Quick Actions ───────────────────────────────────────────────────── */}
+        <View style={styles.quickActionsRow}>
           <TouchableOpacity
-            style={styles.randomBtn}
-            onPress={handleRandomRecipe}
-            accessibilityLabel="Get a random recipe"
+            style={styles.quickActionCard}
+            onPress={() => router.push('/meal-plan')}
+            accessibilityLabel="Open meal planner"
           >
-            <Text style={styles.randomBtnText}>🎲 Random</Text>
+            <Text style={styles.quickActionEmoji}>📅</Text>
+            <Text style={styles.quickActionLabel}>Meal Planner</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.quickActionCard}
+            onPress={() => router.push('/shopping')}
+            accessibilityLabel="Open shopping list"
+          >
+            <Text style={styles.quickActionEmoji}>🛒</Text>
+            <Text style={styles.quickActionLabel}>Shopping List</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.quickActionCard}
+            onPress={() => router.push('/recipe/import-url')}
+            accessibilityLabel="Import recipe from URL"
+          >
+            <Text style={styles.quickActionEmoji}>🔗</Text>
+            <Text style={styles.quickActionLabel}>Import URL</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Quick filters */}
-        <View>
-          <Text style={styles.sectionTitle}>Browse by category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
-            {QUICK_FILTERS.map((f) => (
-              <TouchableOpacity
-                key={f}
-                style={styles.filterChip}
-                onPress={() => handleFilterPress(f)}
-                accessibilityRole="button"
-                accessibilityLabel={`Filter by ${f}`}
-              >
-                <Text style={styles.filterChipText}>{f}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Recently Added */}
+        {/* ─── Recently Added ──────────────────────────────────────────────────── */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recently Added</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/recipes')}>
-              <Text style={styles.seeAll}>See all</Text>
+            <TouchableOpacity
+              style={styles.seeAllBtn}
+              onPress={() => router.push('/(tabs)/recipes')}
+            >
+              <Text style={styles.seeAllText}>See all</Text>
+              <Ionicons name="arrow-forward" size={14} color={Colors.primary} />
             </TouchableOpacity>
           </View>
 
@@ -115,103 +167,182 @@ export default function HomeScreen() {
               {[0, 1].map((i) => <SkeletonCard key={i} />)}
             </View>
           ) : recentRecipes.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No recipes yet.</Text>
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyEmoji}>🥘</Text>
+              <Text style={styles.emptyTitle}>No recipes yet</Text>
+              <Text style={styles.emptySubtitle}>Add your first recipe to get started</Text>
               <TouchableOpacity
                 style={styles.addFirstBtn}
                 onPress={() => router.push('/recipe/new')}
               >
-                <Text style={styles.addFirstBtnText}>Add your first recipe</Text>
+                <Ionicons name="add" size={18} color={Colors.bgWhite} />
+                <Text style={styles.addFirstBtnText}>Add Recipe</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <FlashList
               data={recentRecipes}
               horizontal
-              estimatedItemSize={220}
+              estimatedItemSize={197}
               keyExtractor={(item) => item.id}
               renderItem={({ item }: { item: Recipe }) => (
                 <RecipeCard recipe={item} variant="horizontal" />
               )}
               showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizListContent}
             />
           )}
         </View>
 
-        {/* Favorites */}
+        {/* ─── Favorites ───────────────────────────────────────────────────────── */}
         {favoriteRecipes.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Favorites</Text>
+              <View style={styles.sectionTitleRow}>
+                <Ionicons name="heart" size={16} color={Colors.primary} />
+                <Text style={styles.sectionTitle}>Your Favorites</Text>
+              </View>
             </View>
             <FlashList
               data={favoriteRecipes}
               horizontal
-              estimatedItemSize={220}
+              estimatedItemSize={197}
               keyExtractor={(item) => item.id}
               renderItem={({ item }: { item: Recipe }) => (
                 <RecipeCard recipe={item} variant="horizontal" />
               )}
               showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizListContent}
             />
           </View>
         )}
+
+        {/* Bottom spacer for FAB */}
+        <View style={{ height: 20 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  scroll: { paddingBottom: 120 },
+  container: { flex: 1, backgroundColor: Colors.bgSurface },
+  scroll: { paddingBottom: 100 },
+
+  // Header
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
-  greeting: { fontSize: 14, color: '#94a3b8', fontFamily: 'Inter_400Regular' },
-  name: { fontSize: 24, color: '#0f172a', fontFamily: 'Inter_700Bold', marginTop: 2 },
-  randomBtn: {
-    backgroundColor: '#fff7ed',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#fed7aa',
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  randomBtnText: { color: '#ea580c', fontFamily: 'Inter_600SemiBold', fontSize: 14 },
-  filterRow: { paddingHorizontal: 16, paddingVertical: 8 },
-  filterChip: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  filterChipText: { color: '#0f172a', fontFamily: 'Inter_500Medium', fontSize: 14 },
-  section: { marginTop: 24, paddingHorizontal: 16 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionTitle: { fontSize: 18, color: '#0f172a', fontFamily: 'Inter_700Bold' },
-  seeAll: { fontSize: 14, color: '#f97316', fontFamily: 'Inter_500Medium' },
-  skeletonRow: { flexDirection: 'row', gap: 12 },
-  emptyState: { alignItems: 'center', paddingVertical: 24 },
-  emptyText: { color: '#94a3b8', fontFamily: 'Inter_400Regular', fontSize: 15, marginBottom: 12 },
-  addFirstBtn: {
-    backgroundColor: '#f97316',
+    alignItems: 'flex-start',
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
-    minHeight: 44,
-    justifyContent: 'center',
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xl,
   },
-  addFirstBtnText: { color: '#ffffff', fontFamily: 'Inter_600SemiBold', fontSize: 15 },
+  headerLeft: { flex: 1 },
+  headerActions: { paddingTop: Spacing.xs },
+  greeting: { fontSize: FontSize.sm.size - 1, color: Colors.textFaint, fontFamily: FontFamily.regular },
+  name: { fontSize: 26, color: Colors.textPrimary, fontFamily: FontFamily.bold, marginTop: 2 },
+  subtitle: { fontSize: FontSize.sm.size - 1, color: Colors.textSlate, fontFamily: FontFamily.regular, marginTop: 3 },
+
+  randomBtn: {
+    backgroundColor: Colors.textPrimary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md / 2,
+    paddingHorizontal: 14,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: 22,
+    shadowColor: Colors.textPrimary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  randomBtnIcon: { fontSize: Spacing.lg },
+  randomBtnText: { color: Colors.bgWhite, fontFamily: FontFamily.semibold, fontSize: FontSize.sm.size - 1 },
+
+  // Quick actions
+  quickActionsRow: {
+    flexDirection: 'row', gap: Spacing.sm + 2,
+    paddingHorizontal: 20, marginBottom: Spacing.xl,
+  },
+  quickActionCard: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.md / 2, paddingVertical: 14,
+    backgroundColor: Colors.bgWhite, borderRadius: Radii.lg,
+    borderWidth: 1, borderColor: Colors.bgMuted,
+    ...Shadows.card,
+  },
+  quickActionEmoji: { fontSize: Spacing.xl },
+  quickActionLabel: { fontSize: FontSize.xs.size, fontFamily: FontFamily.semibold, color: Colors.textSecondary, textAlign: 'center' },
+
+  // Search shortcut
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm + 2,
+    backgroundColor: Colors.bgWhite,
+    marginHorizontal: 20,
+    marginBottom: Spacing.xl,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadows.card,
+  },
+  searchPlaceholder: { fontSize: FontSize.sm.size, fontFamily: FontFamily.regular, color: Colors.textFaint },
+
+  // Categories
+  categoryRow: { paddingLeft: 20, paddingRight: Spacing.sm, paddingBottom: Spacing.xs },
+  categoryTile: {
+    width: 90,
+    paddingVertical: 14,
+    borderRadius: Radii.lg,
+    alignItems: 'center',
+    gap: Spacing.md / 2,
+    marginRight: Spacing.sm + 2,
+    ...Shadows.card,
+  },
+  categoryEmoji: { fontSize: 26 },
+  categoryLabel: { fontSize: FontSize.xs.size, fontFamily: FontFamily.semibold },
+
+  // Sections
+  section: { marginTop: 28, paddingHorizontal: 0 },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 14,
+  },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md / 2 },
+  sectionTitle: { fontSize: 19, color: Colors.textPrimary, fontFamily: FontFamily.bold },
+  seeAllBtn: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  seeAllText: { fontSize: FontSize.sm.size - 1, color: Colors.primary, fontFamily: FontFamily.semibold },
+  horizListContent: { paddingLeft: 20, paddingRight: Spacing.sm },
+  skeletonRow: { flexDirection: 'row', gap: Spacing.md, paddingHorizontal: 20 },
+
+  // Empty state
+  emptyCard: {
+    marginHorizontal: 20,
+    backgroundColor: Colors.bgWhite,
+    borderRadius: Radii.xl,
+    padding: Spacing['2xl'],
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.bgMuted,
+  },
+  emptyEmoji: { fontSize: 44, marginBottom: Spacing.md },
+  emptyTitle: { fontSize: 17, fontFamily: FontFamily.bold, color: Colors.textPrimary, marginBottom: Spacing.md / 2 },
+  emptySubtitle: { fontSize: FontSize.sm.size - 1, fontFamily: FontFamily.regular, color: Colors.textFaint, textAlign: 'center', marginBottom: 18 },
+  addFirstBtn: {
+    backgroundColor: Colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md / 2,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: Radii.md,
+  },
+  addFirstBtnText: { color: Colors.bgWhite, fontFamily: FontFamily.semibold, fontSize: FontSize.sm.size },
 });

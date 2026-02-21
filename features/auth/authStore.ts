@@ -10,6 +10,24 @@ interface AuthStore {
   initialize: () => Promise<void>;
   signInWithMagicLink: (email: string) => Promise<boolean>;
   signOut: () => Promise<void>;
+  updateDisplayName: (name: string) => Promise<void>;
+}
+
+// Keep subscription outside store so it is never duplicated across re-renders
+let _authUnsubscribe: (() => void) | null = null;
+
+async function fetchProfile(userId: string, email?: string): Promise<Profile> {
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .single();
+  return { ...(profile ?? {
+    id: userId,
+    display_name: email?.split('@')[0] ?? 'User',
+    avatar_url: null,
+    created_at: new Date().toISOString(),
+  }), email };
 }
 
 export const useAuthStore = create<AuthStore>((set) => ({
@@ -22,47 +40,28 @@ export const useAuthStore = create<AuthStore>((set) => ({
     const { data: { session } } = await supabase.auth.getSession();
 
     if (session?.user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
-
-      set({
-        user: profile ?? {
-          id: session.user.id,
-          display_name: session.user.email?.split('@')[0] ?? 'User',
-          avatar_url: null,
-          created_at: new Date().toISOString(),
-        },
-        session: session.access_token,
-        isInitialized: true,
-      });
+      const profile = await fetchProfile(session.user.id, session.user.email);
+      set({ user: profile, session: session.access_token, isInitialized: true });
     } else {
       set({ isInitialized: true });
     }
 
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
+    // Subscribe only once — tear down any previous subscription first
+    if (_authUnsubscribe) {
+      _authUnsubscribe();
+      _authUnsubscribe = null;
+    }
 
-        set({
-          user: profile ?? {
-            id: session.user.id,
-            display_name: session.user.email?.split('@')[0] ?? 'User',
-            avatar_url: null,
-            created_at: new Date().toISOString(),
-          },
-          session: session.access_token,
-        });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        const profile = await fetchProfile(session.user.id, session.user.email);
+        set({ user: profile, session: session.access_token });
       } else if (event === 'SIGNED_OUT') {
         set({ user: null, session: null });
       }
     });
+
+    _authUnsubscribe = () => subscription.unsubscribe();
   },
 
   signInWithMagicLink: async (email) => {
@@ -78,5 +77,18 @@ export const useAuthStore = create<AuthStore>((set) => ({
   signOut: async () => {
     await supabase.auth.signOut();
     set({ user: null, session: null });
+  },
+
+  updateDisplayName: async (name) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+    await supabase.from('profiles').upsert({
+      id: session.user.id,
+      display_name: name.trim(),
+      updated_at: new Date().toISOString(),
+    });
+    set((state) => ({
+      user: state.user ? { ...state.user, display_name: name.trim() } : null,
+    }));
   },
 }));

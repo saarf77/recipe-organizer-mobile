@@ -1,6 +1,13 @@
 import { getDatabase } from '../client';
 import { Recipe, Ingredient, Step, RecipeImage, RecipeFilters } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { supabase } from '@/services/supabaseClient';
+
+function resolveStoragePath(storagePath: string): string {
+  if (storagePath.startsWith('http')) return storagePath;
+  const { data } = supabase.storage.from('recipe-images').getPublicUrl(storagePath);
+  return data.publicUrl;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,6 +49,12 @@ export const recipeRepository = {
     }
     if (filters?.tags && filters.tags.length > 0) {
       for (const tag of filters.tags) {
+        query += ' AND tags LIKE ?';
+        params.push(`%"${tag}"%`);
+      }
+    }
+    if (filters?.dietary && filters.dietary.length > 0) {
+      for (const tag of filters.dietary) {
         query += ' AND tags LIKE ?';
         params.push(`%"${tag}"%`);
       }
@@ -141,7 +154,6 @@ export const recipeRepository = {
   },
 
   async update(id: string, data: Partial<Recipe>): Promise<void> {
-    const db = await getDatabase();
     const existing = await recipeRepository.findById(id);
     if (!existing) throw new Error(`Recipe ${id} not found`);
     const updated = {
@@ -251,10 +263,14 @@ export const stepRepository = {
 export const recipeImageRepository = {
   async findByRecipeId(recipeId: string): Promise<RecipeImage[]> {
     const db = await getDatabase();
-    return db.getAllAsync<RecipeImage>(
+    const rows = await db.getAllAsync<RecipeImage>(
       'SELECT * FROM recipe_images WHERE recipe_id = ? ORDER BY created_at ASC',
       [recipeId]
     );
+    return rows.map((img) => ({
+      ...img,
+      storage_path: resolveStoragePath(img.storage_path),
+    }));
   },
 
   async insert(image: Omit<RecipeImage, 'created_at'>): Promise<void> {
