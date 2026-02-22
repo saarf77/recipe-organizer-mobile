@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, Platform, Image, FlatList,
@@ -32,31 +32,26 @@ function parseAIIngredient(
   rawQty: string | number | null,
   rawUnit: string | null,
 ): { quantity: string; unit: string } {
-  // Treat the string "null" the same as actual null; coerce numbers to string
   const qty = (rawQty === 'null' || rawQty == null) ? '' : String(rawQty).trim();
   const unit = (rawUnit === 'null' || rawUnit == null) ? '' : String(rawUnit).trim();
 
   if (!qty) return { quantity: '', unit };
 
-  // If unit is already set by the AI, trust it — just clean the quantity
   if (unit) {
     const numOnly = qty.replace(/[^\d.\/\s]/g, '').trim();
     return { quantity: numOnly || qty, unit };
   }
 
-  // Try to split "225g" / "2tbsp" / "1.5kg" / "300ml" → number + letters
   const match = qty.match(/^(\d+(?:[.,]\d+)?(?:\/\d+)?)\s*([a-zA-Z].*)$/);
   if (match) {
     return { quantity: match[1]!.replace(',', '.'), unit: match[2]!.trim() };
   }
 
-  // "1 medium", "2 large" — number + space + word
   const spaceMatch = qty.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
   if (spaceMatch) {
     return { quantity: spaceMatch[1]!, unit: spaceMatch[2]!.trim() };
   }
 
-  // Plain number or unparseable — keep as-is
   return { quantity: qty, unit };
 }
 
@@ -64,7 +59,7 @@ interface IngredientDraft { id: string; name: string; quantity: string; unit: st
 interface StepDraft { id: string; instruction: string }
 
 export default function NewRecipeScreen() {
-  const params = useLocalSearchParams<{ parsed?: string }>();
+  const params = useLocalSearchParams<{ parsed?: string; scan?: string }>();
   const { user } = useAuthStore();
   const { createRecipe, isLoading } = useRecipeStore();
   const addFromRecipe = useShoppingStore((s) => s.addFromRecipe);
@@ -97,15 +92,24 @@ export default function NewRecipeScreen() {
     },
   ) ?? [{ id: uuidv4(), name: '', quantity: '', unit: '' }];
 
+  // ─── Step ───────────────────────────────────────────────────────────────────
+  // If coming in with pre-parsed data (AI / OCR / URL), start on step 2
+  // so the user can review ingredients immediately.
+  const [step, setStep] = useState<1 | 2>(initParsed ? 2 : 1);
+
+  // ─── Form state ─────────────────────────────────────────────────────────────
   const [title, setTitle] = useState<string>(initParsed?.title ?? '');
   const [description, setDescription] = useState<string>(initParsed?.description ?? '');
   const [difficulty, setDifficulty] = useState<Difficulty>(initParsed?.difficulty ?? 'medium');
   const [prepTime, setPrepTime] = useState<string>(String(initParsed?.prep_time_minutes ?? ''));
   const [cookTime, setCookTime] = useState<string>(String(initParsed?.cook_time_minutes ?? ''));
   const [servings, setServings] = useState<string>(String(initParsed?.servings ?? ''));
-  const [category, setCategory] = useState<string>(initParsed?.category ?? '');
+  const [category, setCategory] = useState<string[]>(
+    initParsed?.category ? initParsed.category.split(',').map((c: string) => c.trim()).filter(Boolean) : [],
+  );
   const [cuisine, setCuisine] = useState<string>(initParsed?.cuisine ?? '');
-  const [tags, setTags] = useState<string>(initParsed?.tags?.join(', ') ?? '');
+  const [tags, setTags] = useState<string[]>(initParsed?.tags ?? []);
+  const [tagInput, setTagInput] = useState<string>('');
   const [ingredients, setIngredients] = useState<IngredientDraft[]>(initIngredients);
   const [steps, setSteps] = useState<StepDraft[]>(
     initParsed?.steps?.map((s: string) => ({ id: uuidv4(), instruction: s })) ?? [{ id: uuidv4(), instruction: '' }],
@@ -163,10 +167,20 @@ export default function NewRecipeScreen() {
         setSteps(parsed.steps.map((s) => ({ id: uuidv4(), instruction: s })));
       }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Jump straight to step 2 to review the extracted content
+      setStep(2);
     } finally {
       setOcrLoading(false);
     }
   };
+
+  // Auto-trigger scan picker when arriving from the "Scan a recipe" card
+  useEffect(() => {
+    if (params.scan === 'true') {
+      handleOCR('camera');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ─── Photos ─────────────────────────────────────────────────────────────────
   const handlePickCover = async (source: 'camera' | 'gallery') => {
@@ -243,6 +257,21 @@ export default function NewRecipeScreen() {
   };
   const removeStep = (stepId: string) => setSteps((prev) => prev.filter((s) => s.id !== stepId));
 
+  // ─── Navigation between steps ───────────────────────────────────────────────
+  const handleNext = async () => {
+    if (!title.trim()) {
+      showToast('Please enter a recipe title', 'error');
+      return;
+    }
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setStep(2);
+  };
+
+  const handleBack = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setStep(1);
+  };
+
   // ─── Save ───────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!title.trim()) { showToast('Please enter a recipe title', 'error'); return; }
@@ -257,11 +286,11 @@ export default function NewRecipeScreen() {
         prep_time_minutes: prepTime ? parseInt(prepTime, 10) : null,
         cook_time_minutes: cookTime ? parseInt(cookTime, 10) : null,
         servings: servings ? parseInt(servings, 10) : null,
-        category: category || null,
+        category: category.length ? category.join(', ') : null,
         cuisine: cuisine || null,
         group_id: null,
         is_favorite: false,
-        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+        tags: tags,
         owner_user_id: user.id,
         created_by: user.id,
         updated_by: user.id,
@@ -314,220 +343,275 @@ export default function NewRecipeScreen() {
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
+      {/* Navbar */}
       <View style={styles.navbar}>
-        <TouchableOpacity onPress={goBack} style={styles.navBtn}>
-          <Ionicons name="close" size={24} color={Colors.textPrimary} />
+        <TouchableOpacity
+          onPress={step === 1 ? goBack : handleBack}
+          style={styles.navBtn}
+        >
+          <Ionicons
+            name={step === 1 ? 'close' : 'arrow-back'}
+            size={24}
+            color={Colors.textPrimary}
+          />
         </TouchableOpacity>
-        <Text style={styles.navTitle}>New Recipe</Text>
-        <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={isLoading}>
-          {isLoading ? <ActivityIndicator color={Colors.bgWhite} size="small" /> : <Text style={styles.saveBtnText}>Save</Text>}
-        </TouchableOpacity>
+
+        {/* Step indicator */}
+        <View style={styles.stepIndicator}>
+          <View style={[styles.stepDot, step === 1 && styles.stepDotActive]} />
+          <View style={styles.stepLine} />
+          <View style={[styles.stepDot, step === 2 && styles.stepDotActive]} />
+        </View>
+
+        <View style={styles.navBtn} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Import options */}
-        <View style={styles.importRow}>
-          <TouchableOpacity style={styles.importBtn} onPress={() => handleOCR('camera')} disabled={ocrLoading}>
-            <Ionicons name="camera-outline" size={18} color={Colors.primary} />
-            <Text style={styles.importBtnText}>Camera</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.importBtn} onPress={() => handleOCR('gallery')} disabled={ocrLoading}>
-            <Ionicons name="image-outline" size={18} color={Colors.primary} />
-            <Text style={styles.importBtnText}>Gallery</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.importBtnUrl} onPress={() => router.push('/recipe/import-url')} disabled={ocrLoading}>
-            <Ionicons name="link-outline" size={18} color={Colors.bgWhite} />
-            <Text style={styles.importBtnUrlText}>Import URL</Text>
-          </TouchableOpacity>
-          {ocrLoading && <ActivityIndicator color={Colors.primary} />}
-        </View>
+      <ScrollView
+        key={step}
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {step === 1 ? (
+          <>
+            {/* Step 1 heading */}
+            <Text style={styles.stepHeading}>The basics</Text>
+            <Text style={styles.stepSubheading}>Title is required — everything else is optional.</Text>
 
-        {/* AI Recipe Generator */}
-        <TouchableOpacity
-          style={styles.aiBtn}
-          onPress={() => router.push('/recipe/generate')}
-          disabled={ocrLoading}
-          accessibilityLabel="Generate recipe with AI"
-        >
-          <Ionicons name="sparkles-outline" size={18} color={Colors.bgWhite} />
-          <Text style={styles.aiBtnText}>Generate Recipe from Fridge / Ingredients</Text>
-        </TouchableOpacity>
+            {/* Photos */}
+            <View style={styles.photosSection}>
+              <Text style={styles.fieldLabel}>Photos</Text>
+              <FlatList
+                data={[...coverImages.map((uri) => ({ id: uri, uri })), { id: '__add__', uri: '' }]}
+                keyExtractor={(item) => item.id}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.photosList}
+                renderItem={({ item }) => {
+                  if (item.id === '__add__') {
+                    return (
+                      <TouchableOpacity style={styles.addPhotoBtn} onPress={() => handlePickCover('gallery')} accessibilityLabel="Add photo">
+                        <Ionicons name="add" size={28} color={Colors.textFaint} />
+                        <Text style={styles.addPhotoBtnText}>Add</Text>
+                      </TouchableOpacity>
+                    );
+                  }
+                  return (
+                    <View style={styles.photoThumbWrap}>
+                      <Image source={{ uri: item.uri }} style={styles.photoThumb} />
+                      <TouchableOpacity
+                        style={styles.photoRemoveBtn}
+                        onPress={() => handleRemoveCoverImage(item.uri)}
+                        accessibilityLabel="Remove photo"
+                      >
+                        <Ionicons name="close-circle" size={20} color={Colors.danger} />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                }}
+              />
+            </View>
 
-        {/* Photos */}
-        <View style={styles.photosSection}>
-          <Text style={styles.fieldLabel}>Photos</Text>
-          <FlatList
-            data={[...coverImages.map((uri) => ({ id: uri, uri })), { id: '__add__', uri: '' }]}
-            keyExtractor={(item) => item.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.photosList}
-            renderItem={({ item }) => {
-              if (item.id === '__add__') {
-                return (
-                  <TouchableOpacity style={styles.addPhotoBtn} onPress={() => handlePickCover('gallery')} accessibilityLabel="Add photo">
-                    <Ionicons name="add" size={28} color={Colors.textFaint} />
-                    <Text style={styles.addPhotoBtnText}>Add</Text>
-                  </TouchableOpacity>
-                );
-              }
-              return (
-                <View style={styles.photoThumbWrap}>
-                  <Image source={{ uri: item.uri }} style={styles.photoThumb} />
+            <Field label="Title *">
+              <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Spaghetti Carbonara" placeholderTextColor={Colors.textFaint} accessibilityLabel="Recipe title" />
+            </Field>
+            <Field label="Description">
+              <TextInput style={[styles.input, styles.multiline]} value={description} onChangeText={setDescription} placeholder="A short description..." placeholderTextColor={Colors.textFaint} multiline numberOfLines={3} accessibilityLabel="Recipe description" />
+            </Field>
+
+            <View style={styles.row3}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Prep (min)</Text>
+                <TextInput style={styles.input} value={prepTime} onChangeText={setPrepTime} keyboardType="numeric" placeholder="15" placeholderTextColor={Colors.textFaint} accessibilityLabel="Prep time in minutes" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Cook (min)</Text>
+                <TextInput style={styles.input} value={cookTime} onChangeText={setCookTime} keyboardType="numeric" placeholder="30" placeholderTextColor={Colors.textFaint} accessibilityLabel="Cook time in minutes" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Servings</Text>
+                <TextInput
+                  style={styles.input}
+                  value={servings}
+                  onChangeText={handleServingsChange}
+                  onBlur={handleServingsBlur}
+                  keyboardType="numeric"
+                  placeholder="4"
+                  placeholderTextColor={Colors.textFaint}
+                  accessibilityLabel="Number of servings"
+                />
+              </View>
+            </View>
+            {baseServingsRef.current != null && (
+              <Text style={styles.scalingHint}>Ingredient amounts scale automatically when you change servings</Text>
+            )}
+
+            <Field label="Difficulty">
+              <View style={styles.diffRow}>
+                {DIFFICULTIES.map((d) => (
                   <TouchableOpacity
-                    style={styles.photoRemoveBtn}
-                    onPress={() => handleRemoveCoverImage(item.uri)}
-                    accessibilityLabel="Remove photo"
+                    key={d}
+                    style={[styles.diffBtn, difficulty === d && styles.diffBtnActive]}
+                    onPress={() => setDifficulty(d)}
                   >
-                    <Ionicons name="close-circle" size={20} color={Colors.danger} />
+                    <Text style={[styles.diffBtnText, difficulty === d && styles.diffBtnTextActive]}>
+                      {d.charAt(0).toUpperCase() + d.slice(1)}
+                    </Text>
                   </TouchableOpacity>
-                </View>
-              );
-            }}
-          />
-        </View>
+                ))}
+              </View>
+            </Field>
 
-        {/* Basic info */}
-        <Field label="Title *">
-          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Spaghetti Carbonara" placeholderTextColor={Colors.textFaint} accessibilityLabel="Recipe title" />
-        </Field>
-        <Field label="Description">
-          <TextInput style={[styles.input, styles.multiline]} value={description} onChangeText={setDescription} placeholder="A short description..." placeholderTextColor={Colors.textFaint} multiline numberOfLines={3} accessibilityLabel="Recipe description" />
-        </Field>
+            <Field label="Category">
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {CATEGORIES.map((cat) => (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[styles.chip, category.includes(cat) && styles.chipActive]}
+                    onPress={() => setCategory((prev) =>
+                      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat],
+                    )}
+                  >
+                    <Text style={[styles.chipText, category.includes(cat) && styles.chipTextActive]}>{cat}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </Field>
 
-        {/* Times & servings */}
-        <View style={styles.row3}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.fieldLabel}>Prep (min)</Text>
-            <TextInput style={styles.input} value={prepTime} onChangeText={setPrepTime} keyboardType="numeric" placeholder="15" placeholderTextColor={Colors.textFaint} accessibilityLabel="Prep time in minutes" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.fieldLabel}>Cook (min)</Text>
-            <TextInput style={styles.input} value={cookTime} onChangeText={setCookTime} keyboardType="numeric" placeholder="30" placeholderTextColor={Colors.textFaint} accessibilityLabel="Cook time in minutes" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.fieldLabel}>Servings</Text>
-            <TextInput
-              style={styles.input}
-              value={servings}
-              onChangeText={handleServingsChange}
-              onBlur={handleServingsBlur}
-              keyboardType="numeric"
-              placeholder="4"
-              placeholderTextColor={Colors.textFaint}
-              accessibilityLabel="Number of servings"
-            />
-          </View>
-        </View>
-        {baseServingsRef.current != null && (
-          <Text style={styles.scalingHint}>Ingredient amounts scale automatically when you change servings</Text>
+            <Field label="Cuisine">
+              <TextInput style={styles.input} value={cuisine} onChangeText={setCuisine} placeholder="e.g. Italian" placeholderTextColor={Colors.textFaint} accessibilityLabel="Cuisine type" />
+            </Field>
+
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>Tags</Text>
+              <View style={styles.tagContainer}>
+                {tags.map((tag) => (
+                  <View key={tag} style={styles.tagChip}>
+                    <Text style={styles.tagChipText}>{tag}</Text>
+                    <TouchableOpacity
+                      onPress={() => setTags((prev) => prev.filter((t) => t !== tag))}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      accessibilityLabel={`Remove tag ${tag}`}
+                    >
+                      <Ionicons name="close" size={13} color={Colors.primary} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <TextInput
+                  style={styles.tagInput}
+                  value={tagInput}
+                  onChangeText={(text) => {
+                    // commit on comma or space
+                    if (text.endsWith(',') || text.endsWith(' ')) {
+                      const newTag = text.slice(0, -1).trim();
+                      if (newTag && !tags.includes(newTag)) setTags((prev) => [...prev, newTag]);
+                      setTagInput('');
+                    } else {
+                      setTagInput(text);
+                    }
+                  }}
+                  onSubmitEditing={() => {
+                    const newTag = tagInput.trim();
+                    if (newTag && !tags.includes(newTag)) setTags((prev) => [...prev, newTag]);
+                    setTagInput('');
+                  }}
+                  placeholder={tags.length === 0 ? 'e.g. vegan, quick, family' : 'Add tag…'}
+                  placeholderTextColor={Colors.textFaint}
+                  returnKeyType="done"
+                  blurOnSubmit={false}
+                  accessibilityLabel="Add recipe tag"
+                />
+              </View>
+            </View>
+
+            {/* Next button */}
+            <TouchableOpacity style={styles.nextBtn} onPress={handleNext}>
+              <Text style={styles.nextBtnText}>Next: Ingredients & Steps</Text>
+              <Ionicons name="arrow-forward" size={18} color={Colors.bgWhite} />
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            {/* Step 2 heading */}
+            <Text style={styles.stepHeading}>Ingredients & steps</Text>
+            <Text style={styles.stepSubheading}>Add what goes in and how to make it.</Text>
+
+            {/* Ingredients */}
+            <Text style={styles.sectionTitle}>Ingredients</Text>
+            {ingredients.map((ing, idx) => (
+              <View key={ing.id} style={styles.ingRow}>
+                <TextInput
+                  style={[styles.input, styles.qtyInput]}
+                  value={ing.quantity}
+                  onChangeText={(v) => updateIngredient(ing.id, 'quantity', v)}
+                  placeholder="1"
+                  placeholderTextColor={Colors.textFaint}
+                  keyboardType="decimal-pad"
+                  accessibilityLabel={`Ingredient ${idx + 1} quantity`}
+                />
+                <TouchableOpacity
+                  style={styles.unitBtn}
+                  onPress={() => openUnitPicker(ing.id)}
+                  accessibilityLabel={`Ingredient ${idx + 1} unit`}
+                >
+                  <Text style={styles.unitBtnText} numberOfLines={1}>
+                    {ing.unit || 'unit'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={12} color={Colors.textFaint} />
+                </TouchableOpacity>
+                <TextInput
+                  style={[styles.input, { flex: 2 }]}
+                  value={ing.name}
+                  onChangeText={(v) => updateIngredient(ing.id, 'name', v)}
+                  placeholder="Flour"
+                  placeholderTextColor={Colors.textFaint}
+                  accessibilityLabel={`Ingredient ${idx + 1} name`}
+                />
+                <TouchableOpacity onPress={() => removeIngredient(ing.id)} style={styles.removeBtn} accessibilityLabel="Remove ingredient">
+                  <Ionicons name="remove-circle-outline" size={22} color={Colors.danger} />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TouchableOpacity style={styles.addRowBtn} onPress={addIngredient}>
+              <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
+              <Text style={styles.addRowBtnText}>Add Ingredient</Text>
+            </TouchableOpacity>
+
+            {/* Steps */}
+            <Text style={[styles.sectionTitle, { marginTop: Spacing.xl }]}>Instructions</Text>
+            {steps.map((step, idx) => (
+              <View key={step.id} style={styles.stepRow}>
+                <View style={styles.stepNum}><Text style={styles.stepNumText}>{idx + 1}</Text></View>
+                <TextInput
+                  style={[styles.input, styles.multiline, { flex: 1 }]}
+                  value={step.instruction}
+                  onChangeText={(v) => updateStep(step.id, v)}
+                  placeholder="Describe this step..."
+                  placeholderTextColor={Colors.textFaint}
+                  multiline
+                  accessibilityLabel={`Step ${idx + 1}`}
+                />
+                <TouchableOpacity onPress={() => removeStep(step.id)} style={styles.removeBtn} accessibilityLabel="Remove step">
+                  <Ionicons name="remove-circle-outline" size={22} color={Colors.danger} />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TouchableOpacity style={styles.addRowBtn} onPress={addStep}>
+              <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
+              <Text style={styles.addRowBtnText}>Add Step</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.nextBtn} onPress={handleSave} disabled={isLoading}>
+              {isLoading
+                ? <ActivityIndicator color={Colors.bgWhite} size="small" />
+                : <>
+                    <Ionicons name="checkmark" size={18} color={Colors.bgWhite} />
+                    <Text style={styles.nextBtnText}>Save Recipe</Text>
+                  </>
+              }
+            </TouchableOpacity>
+          </>
         )}
-
-        {/* Difficulty */}
-        <Field label="Difficulty">
-          <View style={styles.diffRow}>
-            {DIFFICULTIES.map((d) => (
-              <TouchableOpacity
-                key={d}
-                style={[styles.diffBtn, difficulty === d && styles.diffBtnActive]}
-                onPress={() => setDifficulty(d)}
-              >
-                <Text style={[styles.diffBtnText, difficulty === d && styles.diffBtnTextActive]}>
-                  {d.charAt(0).toUpperCase() + d.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </Field>
-
-        {/* Category */}
-        <Field label="Category">
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {CATEGORIES.map((cat) => (
-              <TouchableOpacity
-                key={cat}
-                style={[styles.chip, category === cat && styles.chipActive]}
-                onPress={() => setCategory(category === cat ? '' : cat)}
-              >
-                <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>{cat}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </Field>
-
-        <Field label="Cuisine">
-          <TextInput style={styles.input} value={cuisine} onChangeText={setCuisine} placeholder="e.g. Italian" placeholderTextColor={Colors.textFaint} accessibilityLabel="Cuisine type" />
-        </Field>
-
-        <Field label="Tags (comma separated)">
-          <TextInput style={styles.input} value={tags} onChangeText={setTags} placeholder="e.g. vegan, quick, family" placeholderTextColor={Colors.textFaint} accessibilityLabel="Recipe tags" />
-        </Field>
-
-        {/* Ingredients */}
-        <Text style={styles.sectionTitle}>Ingredients</Text>
-        {ingredients.map((ing, idx) => (
-          <View key={ing.id} style={styles.ingRow}>
-            <TextInput
-              style={[styles.input, styles.qtyInput]}
-              value={ing.quantity}
-              onChangeText={(v) => updateIngredient(ing.id, 'quantity', v)}
-              placeholder="1"
-              placeholderTextColor={Colors.textFaint}
-              keyboardType="decimal-pad"
-              accessibilityLabel={`Ingredient ${idx + 1} quantity`}
-            />
-            {/* Unit picker button */}
-            <TouchableOpacity
-              style={styles.unitBtn}
-              onPress={() => openUnitPicker(ing.id)}
-              accessibilityLabel={`Ingredient ${idx + 1} unit`}
-            >
-              <Text style={styles.unitBtnText} numberOfLines={1}>
-                {ing.unit || 'unit'}
-              </Text>
-              <Ionicons name="chevron-down" size={12} color={Colors.textFaint} />
-            </TouchableOpacity>
-            <TextInput
-              style={[styles.input, { flex: 2 }]}
-              value={ing.name}
-              onChangeText={(v) => updateIngredient(ing.id, 'name', v)}
-              placeholder="Flour"
-              placeholderTextColor={Colors.textFaint}
-              accessibilityLabel={`Ingredient ${idx + 1} name`}
-            />
-            <TouchableOpacity onPress={() => removeIngredient(ing.id)} style={styles.removeBtn} accessibilityLabel="Remove ingredient">
-              <Ionicons name="remove-circle-outline" size={22} color={Colors.danger} />
-            </TouchableOpacity>
-          </View>
-        ))}
-        <TouchableOpacity style={styles.addRowBtn} onPress={addIngredient}>
-          <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
-          <Text style={styles.addRowBtnText}>Add Ingredient</Text>
-        </TouchableOpacity>
-
-        {/* Steps */}
-        <Text style={styles.sectionTitle}>Instructions</Text>
-        {steps.map((step, idx) => (
-          <View key={step.id} style={styles.stepRow}>
-            <View style={styles.stepNum}><Text style={styles.stepNumText}>{idx + 1}</Text></View>
-            <TextInput
-              style={[styles.input, styles.multiline, { flex: 1 }]}
-              value={step.instruction}
-              onChangeText={(v) => updateStep(step.id, v)}
-              placeholder="Describe this step..."
-              placeholderTextColor={Colors.textFaint}
-              multiline
-              accessibilityLabel={`Step ${idx + 1}`}
-            />
-            <TouchableOpacity onPress={() => removeStep(step.id)} style={styles.removeBtn} accessibilityLabel="Remove step">
-              <Ionicons name="remove-circle-outline" size={22} color={Colors.danger} />
-            </TouchableOpacity>
-          </View>
-        ))}
-        <TouchableOpacity style={styles.addRowBtn} onPress={addStep}>
-          <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
-          <Text style={styles.addRowBtnText}>Add Step</Text>
-        </TouchableOpacity>
       </ScrollView>
 
       {/* Unit picker modal */}
@@ -538,6 +622,13 @@ export default function NewRecipeScreen() {
         onSelect={handleUnitSelect}
         onClose={() => setUnitPickerVisible(false)}
       />
+
+      {ocrLoading && (
+        <View style={styles.ocrOverlay}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.ocrOverlayText}>Reading recipe…</Text>
+        </View>
+      )}
 
       {toast && (
         <View style={[styles.toast, toast.type === 'error' && styles.toastError, toast.type === 'success' && styles.toastSuccess]}>
@@ -560,22 +651,52 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgWhite },
-  navbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Colors.bgMuted },
+  navbar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Colors.bgMuted,
+  },
   navBtn: { padding: Spacing.xs, minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
-  navTitle: { fontSize: 17, fontFamily: FontFamily.semibold, color: Colors.textPrimary },
-  saveBtn: { backgroundColor: Colors.primary, paddingHorizontal: 18, paddingVertical: 9, borderRadius: Radii.md, minHeight: 40, minWidth: 60, alignItems: 'center', justifyContent: 'center' },
+  stepIndicator: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+  },
+  stepDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: Colors.border,
+  },
+  stepDotActive: {
+    width: 20, height: 8, borderRadius: 4,
+    backgroundColor: Colors.primary,
+  },
+  stepLine: {
+    width: 16, height: 2, backgroundColor: Colors.border, borderRadius: 1,
+  },
+  saveBtn: {
+    backgroundColor: Colors.primary, paddingHorizontal: 18, paddingVertical: 9,
+    borderRadius: Radii.md, minHeight: 40, minWidth: 60, alignItems: 'center', justifyContent: 'center',
+  },
   saveBtnText: { color: Colors.bgWhite, fontFamily: FontFamily.semibold, fontSize: 15 },
   scroll: { padding: Spacing.lg, paddingBottom: 60 },
-  importRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md, alignItems: 'center' },
-  importBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: Colors.primaryBg, borderRadius: 12, paddingVertical: 11, borderWidth: 1, borderColor: Colors.primaryBorder, minHeight: 44 },
-  importBtnText: { fontSize: 13, fontFamily: FontFamily.semibold, color: Colors.primary },
-  importBtnUrl: { flex: 1.3, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: Colors.textPrimary, borderRadius: 12, paddingVertical: 11, minHeight: 44 },
-  importBtnUrlText: { fontSize: 13, fontFamily: FontFamily.semibold, color: Colors.bgWhite },
-  aiBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: Colors.primaryMid, borderRadius: 12, paddingVertical: 13, marginBottom: 20, minHeight: 48 },
-  aiBtnText: { fontSize: FontSize.sm.size, fontFamily: FontFamily.semibold, color: Colors.bgWhite },
+  stepHeading: {
+    fontFamily: FontFamily.bold, fontSize: 22, color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  stepSubheading: {
+    fontFamily: FontFamily.regular, fontSize: FontSize.sm.size, color: Colors.textMuted,
+    marginBottom: Spacing.xl,
+  },
+  ocrOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    alignItems: 'center', justifyContent: 'center', gap: Spacing.md,
+  },
+  ocrOverlayText: { fontFamily: FontFamily.medium, fontSize: FontSize.base.size, color: Colors.textSecondary },
   field: { marginBottom: Spacing.lg },
   fieldLabel: { fontSize: 13, fontFamily: FontFamily.semibold, color: Colors.textSecondary, marginBottom: 6 },
-  input: { backgroundColor: Colors.bgSurface, borderWidth: 1, borderColor: Colors.border, borderRadius: Radii.md, padding: Spacing.md, fontSize: 15, fontFamily: FontFamily.regular, color: Colors.textPrimary, minHeight: 48 },
+  input: {
+    backgroundColor: Colors.bgSurface, borderWidth: 1, borderColor: Colors.border,
+    borderRadius: Radii.md, padding: Spacing.md, fontSize: 15,
+    fontFamily: FontFamily.regular, color: Colors.textPrimary, minHeight: 48,
+  },
   multiline: { minHeight: 80, textAlignVertical: 'top' },
   row3: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.xs },
   scalingHint: { fontSize: 11, fontFamily: FontFamily.regular, color: Colors.textFaint, marginBottom: Spacing.lg, marginLeft: 2 },
@@ -588,24 +709,15 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: Colors.primaryBg, borderWidth: 1, borderColor: Colors.primary },
   chipText: { fontSize: 13, fontFamily: FontFamily.medium, color: Colors.textSecondary },
   chipTextActive: { color: Colors.primary },
-  sectionTitle: { fontSize: 18, fontFamily: FontFamily.bold, color: Colors.textPrimary, marginTop: Spacing.lg, marginBottom: 10 },
+  sectionTitle: { fontSize: 18, fontFamily: FontFamily.bold, color: Colors.textPrimary, marginBottom: 10 },
   ingRow: { flexDirection: 'row', gap: 6, marginBottom: Spacing.sm, alignItems: 'center' },
   qtyInput: { flex: 1, maxWidth: 90, minWidth: 44 },
   unitBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    flex: 1,
-    maxWidth: 100,
-    minWidth: 56,
-    minHeight: 48,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 10,
-    backgroundColor: Colors.bgSurface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radii.md,
-    justifyContent: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 2,
+    flex: 1, maxWidth: 100, minWidth: 56, minHeight: 48,
+    paddingHorizontal: Spacing.sm, paddingVertical: 10,
+    backgroundColor: Colors.bgSurface, borderWidth: 1, borderColor: Colors.border,
+    borderRadius: Radii.md, justifyContent: 'center',
   },
   unitBtnText: { fontSize: FontSize.xs.size, fontFamily: FontFamily.medium, color: '#374151', flexShrink: 1 },
   stepRow: { flexDirection: 'row', gap: 10, marginBottom: 10, alignItems: 'flex-start' },
@@ -614,6 +726,13 @@ const styles = StyleSheet.create({
   removeBtn: { padding: Spacing.xs, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   addRowBtn: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, padding: 10, marginTop: Spacing.xs, minHeight: 44 },
   addRowBtnText: { fontSize: 15, fontFamily: FontFamily.medium, color: Colors.primary },
+  nextBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.sm, backgroundColor: Colors.primary, borderRadius: Radii.lg,
+    paddingVertical: 15, marginTop: Spacing.xl,
+    ...Shadows.primary,
+  },
+  nextBtnText: { fontFamily: FontFamily.semibold, fontSize: FontSize.base.size, color: Colors.bgWhite },
   photosSection: { marginBottom: 20 },
   photosList: { gap: 10, paddingBottom: Spacing.xs },
   photoThumbWrap: { position: 'relative' },
@@ -625,7 +744,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', gap: Spacing.xs,
   },
   addPhotoBtnText: { fontSize: FontSize.xs.size, fontFamily: FontFamily.medium, color: Colors.textFaint },
-
   toast: {
     position: 'absolute', bottom: Spacing['2xl'], left: 20, right: 20,
     backgroundColor: Colors.primary, borderRadius: Radii.lg,
@@ -636,4 +754,20 @@ const styles = StyleSheet.create({
   toastError: { backgroundColor: Colors.danger },
   toastSuccess: { backgroundColor: Colors.primaryMid },
   toastText: { flex: 1, fontSize: FontSize.sm.size, fontFamily: FontFamily.medium, color: Colors.bgWhite },
+  tagContainer: {
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.bgSurface, borderWidth: 1, borderColor: Colors.border,
+    borderRadius: Radii.md, padding: Spacing.sm, minHeight: 48,
+  },
+  tagChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: Colors.primaryBg, borderWidth: 1, borderColor: Colors.primary,
+    borderRadius: Radii.full, paddingHorizontal: 10, paddingVertical: 4,
+  },
+  tagChipText: { fontSize: 13, fontFamily: FontFamily.medium, color: Colors.primary },
+  tagInput: {
+    flex: 1, minWidth: 100, fontSize: 15,
+    fontFamily: FontFamily.regular, color: Colors.textPrimary,
+    paddingVertical: 4,
+  },
 });
