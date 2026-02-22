@@ -16,7 +16,42 @@ function rowToRecipe(row: Record<string, unknown>): Recipe {
     ...(row as unknown as Recipe),
     tags: JSON.parse((row['tags'] as string) ?? '[]'),
     is_favorite: Boolean(row['is_favorite']),
+    is_sample: Boolean(row['is_sample']),
   };
+}
+
+/**
+ * Fetches the first image for each recipe in a single query and attaches it.
+ * Avoids N+1 queries when loading recipe lists.
+ */
+async function attachFirstImages(recipes: Recipe[]): Promise<Recipe[]> {
+  if (recipes.length === 0) return recipes;
+  const db = await getDatabase();
+  const ids = recipes.map((r) => r.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await db.getAllAsync<{ recipe_id: string; storage_path: string; local_uri: string | null }>(
+    `SELECT recipe_id, storage_path, local_uri FROM recipe_images
+     WHERE recipe_id IN (${placeholders})
+     GROUP BY recipe_id
+     ORDER BY recipe_id, created_at ASC`,
+    ids
+  );
+  const imageMap = new Map<string, RecipeImage>();
+  for (const row of rows) {
+    if (!imageMap.has(row.recipe_id)) {
+      imageMap.set(row.recipe_id, {
+        id: '',
+        recipe_id: row.recipe_id,
+        storage_path: resolveStoragePath(row.storage_path),
+        local_uri: row.local_uri ?? undefined,
+        created_at: '',
+      });
+    }
+  }
+  return recipes.map((r) => {
+    const img = imageMap.get(r.id);
+    return img ? { ...r, images: [img] } : r;
+  });
 }
 
 // ─── Recipe Repository ────────────────────────────────────────────────────────
@@ -63,7 +98,7 @@ export const recipeRepository = {
     query += ' ORDER BY updated_at DESC';
 
     const rows = await db.getAllAsync<Record<string, unknown>>(query, params);
-    return rows.map(rowToRecipe);
+    return attachFirstImages(rows.map(rowToRecipe));
   },
 
   async findById(id: string): Promise<Recipe | null> {
@@ -86,7 +121,7 @@ export const recipeRepository = {
       'SELECT * FROM recipes WHERE is_deleted = 0 ORDER BY created_at DESC LIMIT ?',
       [limit]
     );
-    return rows.map(rowToRecipe);
+    return attachFirstImages(rows.map(rowToRecipe));
   },
 
   async findFavorites(): Promise<Recipe[]> {
@@ -94,7 +129,7 @@ export const recipeRepository = {
     const rows = await db.getAllAsync<Record<string, unknown>>(
       'SELECT * FROM recipes WHERE is_favorite = 1 AND is_deleted = 0 ORDER BY updated_at DESC'
     );
-    return rows.map(rowToRecipe);
+    return attachFirstImages(rows.map(rowToRecipe));
   },
 
   async findRandom(): Promise<Recipe | null> {
@@ -103,7 +138,8 @@ export const recipeRepository = {
       'SELECT * FROM recipes WHERE is_deleted = 0 ORDER BY RANDOM() LIMIT 1'
     );
     if (!row) return null;
-    return rowToRecipe(row);
+    const [recipe] = await attachFirstImages([rowToRecipe(row)]);
+    return recipe ?? null;
   },
 
   async upsert(recipe: Omit<Recipe, 'ingredients' | 'steps' | 'images'>): Promise<void> {
@@ -113,8 +149,8 @@ export const recipeRepository = {
         id, group_id, owner_user_id, created_by, title, description,
         difficulty, prep_time_minutes, cook_time_minutes, servings,
         cuisine, category, is_favorite, tags, created_at, updated_at,
-        updated_by, is_deleted, local_only
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        updated_by, is_deleted, local_only, is_sample
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         recipe.id,
         recipe.group_id ?? null,
@@ -135,6 +171,7 @@ export const recipeRepository = {
         recipe.updated_by,
         0,
         0,
+        recipe.is_sample ? 1 : 0,
       ]
     );
   },

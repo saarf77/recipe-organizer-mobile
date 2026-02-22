@@ -21,8 +21,7 @@ import { Colors, Spacing, Radii, FontFamily, FontSize } from '@/constants';
 
 type ListRow =
   | { type: 'section'; key: string; label: string }
-  | { type: 'item'; key: string; item: ShoppingItem }
-  | { type: 'add-row'; key: string };
+  | { type: 'item'; key: string; item: ShoppingItem };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -204,8 +203,6 @@ export default function ShoppingListScreen() {
 
   // Build FlatList data: section headers + items, grouped by recipeName
   const listData = useMemo<ListRow[]>(() => {
-    if (items.length === 0) return [{ type: 'add-row', key: 'add-row' }];
-
     // Collect group names preserving insertion order
     const groupOrder: string[] = [];
     const groupMap: Record<string, ShoppingItem[]> = {};
@@ -226,7 +223,6 @@ export default function ShoppingListScreen() {
         rows.push({ type: 'item', key: `item-${item.id}`, item });
       }
     }
-    rows.push({ type: 'add-row', key: 'add-row' });
     return rows;
   }, [items]);
 
@@ -273,8 +269,60 @@ export default function ShoppingListScreen() {
         />
       );
     }
-    // add-row
-    return (
+    return null;
+  }, [handleToggle, handleRemove]);
+
+  const keyExtractor = useCallback((row: ListRow) => row.key, []);
+
+  const isEmpty = items.length === 0;
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
+      {/* Navbar */}
+      <View style={styles.navbar}>
+        <Text style={styles.navTitle}>Shopping List</Text>
+        {!isEmpty && (
+          <TouchableOpacity onPress={handleClearAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="trash-outline" size={22} color={Colors.textMuted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* List or empty state */}
+      {isEmpty ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyEmoji}>🛒</Text>
+          <Text style={styles.emptyTitle}>Your list is empty</Text>
+          <Text style={styles.emptySubtitle}>Add ingredients from any recipe</Text>
+        </View>
+      ) : (
+        <>
+          <FlatList
+            data={listData}
+            keyExtractor={keyExtractor}
+            renderItem={renderRow}
+            contentContainerStyle={styles.listContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          />
+
+          {/* Bottom action bar */}
+          {!isEmpty && (
+            <View style={styles.bottomBar}>
+              {checkedCount > 0 && (
+                <TouchableOpacity style={styles.clearCheckedBtn} onPress={handleClearChecked} activeOpacity={0.7}>
+                  <Text style={styles.clearCheckedText}>Clear checked ({checkedCount})</Text>
+                </TouchableOpacity>
+              )}
+              <Text style={styles.remainingText}>
+                {remainingCount} item{remainingCount !== 1 ? 's' : ''} remaining
+              </Text>
+            </View>
+          )}
+        </>
+      )}
+
+      {/* Add row — always pinned at the bottom */}
       <AddRow
         value={inputValue}
         onChange={setInputValue}
@@ -286,71 +334,6 @@ export default function ShoppingListScreen() {
         suggestions={suggestions}
         onSuggestionSelect={(name) => setInputValue(name)}
       />
-    );
-  }, [inputValue, inputQty, inputUnit, suggestions, handleToggle, handleRemove, handleAdd]);
-
-  const keyExtractor = useCallback((row: ListRow) => row.key, []);
-
-  const isEmpty = items.length === 0;
-
-  return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      {/* Navbar */}
-      <View style={styles.navbar}>
-        <Text style={styles.navTitle}>Shopping List</Text>
-        {!isEmpty && (
-          <TouchableOpacity onPress={handleClearAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="trash-outline" size={22} color={Colors.textMuted} />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Empty state */}
-      {isEmpty ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyEmoji}>🛒</Text>
-          <Text style={styles.emptyTitle}>Your list is empty</Text>
-          <Text style={styles.emptySubtitle}>Add ingredients from any recipe</Text>
-          {/* Still allow manual adds even when empty */}
-          <View style={styles.emptyAddRow}>
-            <AddRow
-              value={inputValue}
-              onChange={setInputValue}
-              onAdd={handleAdd}
-              quantity={inputQty}
-              onQuantityChange={setInputQty}
-              unit={inputUnit}
-              onUnitPress={() => setUnitPickerVisible(true)}
-              suggestions={suggestions}
-              onSuggestionSelect={(name) => setInputValue(name)}
-            />
-          </View>
-        </View>
-      ) : (
-        <>
-          <FlatList
-            data={listData}
-            keyExtractor={keyExtractor}
-            renderItem={renderRow}
-            contentContainerStyle={styles.listContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            extraData={inputValue}
-          />
-
-          {/* Bottom action bar */}
-          <View style={styles.bottomBar}>
-            {checkedCount > 0 && (
-              <TouchableOpacity style={styles.clearCheckedBtn} onPress={handleClearChecked} activeOpacity={0.7}>
-                <Text style={styles.clearCheckedText}>Clear checked ({checkedCount})</Text>
-              </TouchableOpacity>
-            )}
-            <Text style={styles.remainingText}>
-              {remainingCount} item{remainingCount !== 1 ? 's' : ''} remaining
-            </Text>
-          </View>
-        </>
-      )}
 
       <UnitPickerModal
         visible={unitPickerVisible}
@@ -466,7 +449,7 @@ const styles = StyleSheet.create({
   addRowWrap: {
     marginHorizontal: Spacing.lg,
     marginTop: Spacing.md,
-    marginBottom: Spacing.xs,
+    marginBottom: Spacing.md,
     gap: Spacing.sm,
   },
   addRow: {
@@ -582,11 +565,6 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textAlign: 'center',
   },
-  emptyAddRow: {
-    alignSelf: 'stretch',
-    marginTop: Spacing.xl,
-  },
-
   // Bottom bar
   bottomBar: {
     flexDirection: 'row',

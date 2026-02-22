@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
-  StyleSheet, Dimensions, Alert,
+  View, Text, TextInput, TouchableOpacity, ScrollView,
+  StyleSheet, Alert, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
@@ -13,10 +13,14 @@ import RecipeCard from '@/components/RecipeCard';
 import { Recipe, Difficulty } from '@/types';
 import { Colors, Spacing, Radii, FontFamily, FontSize, Shadows } from '@/constants';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
 const COL_GAP = 10;
 const H_PADDING = 16;
-const GRID_ITEM_WIDTH = (SCREEN_WIDTH - H_PADDING * 2 - COL_GAP) / 2;
+
+function getNumColumns(width: number): number {
+  if (width >= 900) return 4;
+  if (width >= 600) return 3;
+  return 2;
+}
 
 const DIFFICULTY_OPTIONS: Array<{ label: string; value: Difficulty | null; emoji: string }> = [
   { label: 'All',    value: null,     emoji: '✨' },
@@ -35,6 +39,10 @@ const DIETARY_OPTIONS: Array<{ label: string; value: string; emoji: string }> = 
 ];
 
 export default function RecipesScreen() {
+  const { width } = useWindowDimensions();
+  const numColumns = getNumColumns(width);
+  const gridItemWidth = (width - H_PADDING * 2 - COL_GAP * (numColumns - 1)) / numColumns;
+
   const params = useLocalSearchParams<{ category?: string }>();
   const {
     recipes, isLoading, categories,
@@ -158,12 +166,29 @@ export default function RecipesScreen() {
     );
   }, [selectedIds, deleteRecipe]);
 
-  const activeFilterCount = [
-    filters.difficulty !== null,
-    filters.category !== null,
-    filters.is_favorite,
-    (filters.dietary?.length ?? 0) > 0,
-  ].filter(Boolean).length;
+  const activeFilterChips: Array<{ key: string; label: string; onRemove: () => void }> = [
+    ...(filters.difficulty !== null
+      ? [{
+          key: 'difficulty',
+          label: DIFFICULTY_OPTIONS.find((o) => o.value === filters.difficulty)?.emoji
+            + ' ' + DIFFICULTY_OPTIONS.find((o) => o.value === filters.difficulty)?.label,
+          onRemove: () => setFilter('difficulty', null),
+        }]
+      : []),
+    ...(filters.category !== null
+      ? [{ key: 'category', label: filters.category, onRemove: () => setFilter('category', null) }]
+      : []),
+    ...(filters.is_favorite
+      ? [{ key: 'favorite', label: '♥ Favorites', onRemove: () => setFilter('is_favorite', false) }]
+      : []),
+    ...(filters.dietary ?? []).map((d) => ({
+      key: `dietary-${d}`,
+      label: (DIETARY_OPTIONS.find((o) => o.value === d)?.emoji ?? '') + ' ' + d,
+      onRemove: () => toggleDietary(d),
+    })),
+  ];
+
+  const activeFilterCount = activeFilterChips.length;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -193,29 +218,7 @@ export default function RecipesScreen() {
                 <Text style={styles.cancelSelectText}>Cancel</Text>
               </TouchableOpacity>
             </>
-          ) : (
-            <>
-              <TouchableOpacity
-                style={styles.selectModeBtn}
-                onPress={toggleSelectMode}
-                accessibilityLabel="Select recipes"
-              >
-                <Ionicons name="checkmark-circle-outline" size={22} color={Colors.textSecondary} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.filterToggle, showFilters && styles.filterToggleActive]}
-                onPress={() => setShowFilters((v) => !v)}
-                accessibilityLabel="Toggle filters"
-              >
-                <Ionicons name="options-outline" size={20} color={showFilters ? Colors.primary : Colors.textSecondary} />
-                {activeFilterCount > 0 && (
-                  <View style={styles.filterBadge}>
-                    <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
+          ) : null}
         </View>
       </View>
 
@@ -241,6 +244,19 @@ export default function RecipesScreen() {
               <Ionicons name="leaf-outline" size={13} color={searchMode === 'ingredient' ? Colors.primary : Colors.textFaint} />
               <Text style={[styles.searchModeBtnText, searchMode === 'ingredient' && styles.searchModeBtnTextActive]}>By Ingredient</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterPill, showFilters && styles.filterPillActive]}
+              onPress={() => setShowFilters((v) => !v)}
+              accessibilityLabel="Toggle filters"
+            >
+              <Ionicons name="options-outline" size={13} color={showFilters ? Colors.primary : Colors.textFaint} />
+              <Text style={[styles.searchModeBtnText, showFilters && styles.searchModeBtnTextActive]}>Filter</Text>
+              {activeFilterCount > 0 && (
+                <View style={styles.filterPillBadge}>
+                  <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
           <View style={styles.searchContainer}>
             <Ionicons name="search-outline" size={18} color={Colors.textFaint} style={styles.searchIcon} />
@@ -265,6 +281,28 @@ export default function RecipesScreen() {
         </>
       )}
 
+      {/* ─── Active filter chips strip ──────────────────────────────────────── */}
+      {!showFilters && !selectMode && activeFilterChips.length > 0 && (
+        <View style={styles.activeChipsScroll}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.activeChipsRow}
+          >
+            {activeFilterChips.map((chip) => (
+              <TouchableOpacity
+                key={chip.key}
+                style={styles.activeChip}
+                onPress={() => { chip.onRemove(); Haptics.selectionAsync(); }}
+              >
+                <Text style={styles.activeChipText}>{chip.label}</Text>
+                <Ionicons name="close" size={12} color={Colors.primaryMid} />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       {/* ─── Filters panel ──────────────────────────────────────────────────── */}
       {showFilters && !selectMode && (
         <View style={styles.filtersPanel}>
@@ -275,7 +313,7 @@ export default function RecipesScreen() {
                 <TouchableOpacity
                   key={String(opt.value)}
                   style={[styles.chip, filters.difficulty === opt.value && styles.chipActive]}
-                  onPress={() => setFilter('difficulty', opt.value)}
+                  onPress={() => setFilter('difficulty', filters.difficulty === opt.value ? null : opt.value)}
                   accessibilityRole="button"
                 >
                   <Text style={styles.chipEmoji}>{opt.emoji}</Text>
@@ -321,7 +359,7 @@ export default function RecipesScreen() {
                   <TouchableOpacity
                     key={cat}
                     style={[styles.chip, filters.category === cat && styles.chipActive]}
-                    onPress={() => setFilter('category', cat)}
+                    onPress={() => setFilter('category', filters.category === cat ? null : cat)}
                   >
                     <Text style={[styles.chipText, filters.category === cat && styles.chipTextActive]}>{cat}</Text>
                   </TouchableOpacity>
@@ -367,15 +405,15 @@ export default function RecipesScreen() {
       {isLoading ? (
         <View style={styles.skeletonGrid}>
           {[0, 1, 2, 3].map((i) => (
-            <View key={i} style={[styles.skeletonCard, { width: GRID_ITEM_WIDTH }]} />
+            <View key={i} style={[styles.skeletonCard, { width: gridItemWidth }]} />
           ))}
         </View>
       ) : (
         <FlashList
           data={displayRecipes}
-          estimatedItemSize={180}
           keyExtractor={(item) => item.id}
-          numColumns={2}
+          numColumns={numColumns}
+          key={String(numColumns)}
           renderItem={({ item }: { item: Recipe }) => {
             const isSelected = selectedIds.has(item.id);
             return (
@@ -385,14 +423,21 @@ export default function RecipesScreen() {
                 onLongPress={!selectMode ? () => { setSelectMode(true); toggleSelect(item.id); } : undefined}
                 activeOpacity={selectMode ? 0.7 : 1}
               >
+                {/* pointerEvents="none" blocks inner card gestures in select mode
+                    so touches reach the outer TouchableOpacity instead */}
+                <View pointerEvents={selectMode ? 'none' : 'box-none'}>
+                  <RecipeCard recipe={item} variant="grid" />
+                </View>
                 {selectMode && (
-                  <View style={[styles.selectionOverlay, isSelected && styles.selectionOverlayActive]}>
+                  <View
+                    pointerEvents="none"
+                    style={[styles.selectionOverlay, isSelected && styles.selectionOverlayActive]}
+                  >
                     <View style={[styles.selectionCircle, isSelected && styles.selectionCircleActive]}>
                       {isSelected && <Ionicons name="checkmark" size={14} color={Colors.bgWhite} />}
                     </View>
                   </View>
                 )}
-                <RecipeCard recipe={item} variant="grid" />
               </TouchableOpacity>
             );
           }}
@@ -438,20 +483,22 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontFamily: FontFamily.bold, color: Colors.textPrimary },
   topBarActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
 
-  filterToggle: {
-    padding: Spacing.sm + 2,
-    borderRadius: Radii.md,
-    backgroundColor: Colors.bgMuted,
-    minHeight: 44,
-    minWidth: 44,
+  filterPill: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: Radii.full,
+    backgroundColor: Colors.bgMuted,
+    minHeight: 34,
   },
-  filterToggleActive: { backgroundColor: Colors.primaryBg },
-  filterBadge: {
-    position: 'absolute',
-    top: Spacing.md / 2,
-    right: Spacing.md / 2,
+  filterPillActive: {
+    backgroundColor: Colors.primaryBg,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+  },
+  filterPillBadge: {
     width: 16,
     height: 16,
     borderRadius: Radii.full,
@@ -460,16 +507,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   filterBadgeText: { fontSize: 9, fontFamily: FontFamily.bold, color: Colors.bgWhite },
-
-  selectModeBtn: {
-    padding: Spacing.sm + 2,
-    borderRadius: Radii.md,
-    backgroundColor: Colors.bgMuted,
-    minHeight: 44,
-    minWidth: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 
   // Bulk select toolbar
   selectAllBtn: {
@@ -587,6 +624,30 @@ const styles = StyleSheet.create({
   favToggleActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   favToggleText: { fontSize: FontSize.sm.size, fontFamily: FontFamily.medium, color: Colors.primary },
   favToggleTextActive: { color: Colors.bgWhite, fontFamily: FontFamily.semibold },
+
+  activeChipsScroll: { height: 38, marginBottom: 2 },
+  activeChipsRow: {
+    paddingHorizontal: H_PADDING,
+    gap: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  activeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: Radii.full,
+    backgroundColor: Colors.primaryBg,
+    borderWidth: 1.5,
+    borderColor: Colors.primaryBgBorder,
+  },
+  activeChipText: {
+    fontSize: FontSize.sm.size - 1,
+    fontFamily: FontFamily.semibold,
+    color: Colors.primary,
+  },
 
   countText: {
     paddingHorizontal: 20,

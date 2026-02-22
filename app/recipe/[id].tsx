@@ -219,7 +219,7 @@ export default function RecipeDetailScreen() {
   const displayServings = Math.max(1, Math.round(baseServings * servingsScale));
 
   return (
-    <SafeAreaView style={[styles.container, cookingMode && styles.cookingModeContainer]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, cookingMode && styles.cookingModeContainer]} edges={['top', 'bottom']}>
       {/* Floating navbar — overlays hero */}
       <View style={styles.navbar}>
         <TouchableOpacity style={styles.navBtn} onPress={() => router.back()} accessibilityLabel="Go back">
@@ -654,7 +654,7 @@ const styles = StyleSheet.create({
   // Navbar
   navbar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, backgroundColor: Colors.bgWhite,
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, backgroundColor: Colors.bgWhite,
     borderBottomWidth: 1, borderBottomColor: Colors.bgMuted,
   },
   navBtn: {

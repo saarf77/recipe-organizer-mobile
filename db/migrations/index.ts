@@ -24,6 +24,17 @@ export async function runMigrations(db: SQLite.SQLiteDatabase): Promise<void> {
       await db.execAsync(sql);
     }
 
+    // v6: add is_sample column to recipes
+    if (currentVersion < 6) {
+      try {
+        await db.execAsync(
+          'ALTER TABLE recipes ADD COLUMN is_sample INTEGER NOT NULL DEFAULT 0'
+        );
+      } catch {
+        // column already exists — safe to ignore
+      }
+    }
+
     // Seed migration version
     for (let v = currentVersion + 1; v <= SCHEMA_VERSION; v++) {
       await db.runAsync(

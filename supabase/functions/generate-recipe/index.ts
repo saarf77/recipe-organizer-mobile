@@ -22,6 +22,28 @@ const CORS_HEADERS = {
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const TEXT_MODEL = 'llama-3.1-8b-instant';
 const VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+const UNSPLASH_API_URL = 'https://api.unsplash.com/search/photos';
+
+/**
+ * Fetch the best-matching food photo URL from Unsplash.
+ * Returns null if the key is not set or the request fails.
+ */
+async function fetchUnsplashImage(query: string): Promise<string | null> {
+  // @ts-ignore: Deno global is available at runtime in Supabase Edge Functions
+  const accessKey = Deno.env.get('UNSPLASH_ACCESS_KEY');
+  if (!accessKey) return null;
+  try {
+    const url = `${UNSPLASH_API_URL}?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Client-ID ${accessKey}` },
+    });
+    if (!res.ok) return null;
+    const json = await res.json() as { results?: Array<{ urls?: { regular?: string } }> };
+    return json.results?.[0]?.urls?.regular ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const JSON_SHAPE = `{
   "title": string,
@@ -136,6 +158,12 @@ serve(async (req: Request) => {
     // Strip markdown code fences if the model wrapped its output
     const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
     const parsed = JSON.parse(cleaned);
+
+    // Fetch a matching food photo from Unsplash (best-effort, non-blocking)
+    const imageUrl = await fetchUnsplashImage(parsed.title ?? 'food recipe');
+    if (imageUrl) {
+      parsed.cover_image_url = imageUrl;
+    }
 
     return new Response(JSON.stringify(parsed), {
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },

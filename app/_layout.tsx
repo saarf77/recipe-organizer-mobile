@@ -15,8 +15,10 @@ import {
 } from '@expo-google-fonts/inter';
 import { useAuthStore } from '@/features/auth/authStore';
 import { useSettingsStore } from '@/features/settings/settingsStore';
+import { useRecipeStore } from '@/features/recipes/recipeStore';
 import { getDatabase } from '@/db/client';
 import { startBackgroundSync } from '@/services/syncService';
+import { seedSampleRecipes } from '@/services/seedService';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -35,6 +37,18 @@ export default function RootLayout() {
     async function boot() {
       await getDatabase();
       await Promise.all([initialize(), initializeSettings()]);
+      const { user } = useAuthStore.getState();
+      if (user) {
+        try {
+          const seeded = await seedSampleRecipes(user.id);
+          if (seeded) {
+            const store = useRecipeStore.getState();
+            await Promise.all([store.loadRecent(), store.loadFavorites(), store.loadAll()]);
+          }
+        } catch (e) {
+          console.error('[Boot] seedSampleRecipes failed:', e);
+        }
+      }
     }
     boot();
   }, []);

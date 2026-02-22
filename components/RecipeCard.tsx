@@ -18,7 +18,7 @@ interface Props {
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 
 const RecipeCard = memo(({ recipe, variant }: Props) => {
-  const { toggleFavorite, deleteRecipe } = useRecipeStore();
+  const { toggleFavorite, deleteRecipe, fetchById } = useRecipeStore();
   const swipeableRef = useRef<SwipeableMethods>(null);
   const scale = useSharedValue(1);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -38,15 +38,25 @@ const RecipeCard = memo(({ recipe, variant }: Props) => {
 
   const handleShare = useCallback(async () => {
     swipeableRef.current?.close();
-    const text = [
-      recipe.title,
-      recipe.description ?? '',
-      recipe.prep_time_minutes ? `Prep: ${recipe.prep_time_minutes} min` : '',
-      recipe.cook_time_minutes ? `Cook: ${recipe.cook_time_minutes} min` : '',
-      recipe.servings ? `Serves: ${recipe.servings}` : '',
-    ].filter(Boolean).join('\n');
     try {
-      await Share.share({ message: text, title: recipe.title });
+      await fetchById(recipe.id);
+      const full = useRecipeStore.getState().currentRecipe ?? recipe;
+      const text = [
+        `🍳 ${full.title}`,
+        full.description ?? '',
+        '',
+        `⏱ Prep: ${full.prep_time_minutes ?? '?'} min | Cook: ${full.cook_time_minutes ?? '?'} min`,
+        full.servings != null ? `👥 Serves: ${full.servings}` : '',
+        '',
+        '📋 Ingredients:',
+        ...(full.ingredients ?? []).map((i) =>
+          `• ${[i.quantity, i.unit, i.name].filter(Boolean).join(' ')}`
+        ),
+        '',
+        '📝 Steps:',
+        ...(full.steps ?? []).map((s, idx) => `${idx + 1}. ${s.instruction}`),
+      ].filter((l) => l !== '').join('\n');
+      await Share.share({ message: text, title: full.title });
     } catch { /* cancelled */ }
   }, [recipe]);
 
@@ -142,7 +152,14 @@ const RecipeCard = memo(({ recipe, variant }: Props) => {
             </TouchableOpacity>
           </View>
           <View style={styles.vertBottom}>
-            {recipe.category && <Text style={styles.cardCategory}>{recipe.category.toUpperCase()}</Text>}
+            <View style={styles.vertTitleRow}>
+              {recipe.category && <Text style={styles.cardCategory}>{recipe.category.toUpperCase()}</Text>}
+              {recipe.is_sample && (
+                <View style={styles.sampleBadge}>
+                  <Text style={styles.sampleBadgeText}>Sample</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.vertTitle} numberOfLines={2}>{recipe.title}</Text>
             <View style={styles.metaRow}>
               {totalTime > 0 && (
@@ -197,7 +214,14 @@ const RecipeCard = memo(({ recipe, variant }: Props) => {
             )}
           </View>
           <View style={styles.gridContent}>
-            {recipe.category && <Text style={styles.cardCategory} numberOfLines={1}>{recipe.category}</Text>}
+            <View style={styles.gridCategoryRow}>
+              {recipe.category && <Text style={styles.cardCategory} numberOfLines={1}>{recipe.category}</Text>}
+              {recipe.is_sample && (
+                <View style={styles.sampleBadgeLight}>
+                  <Text style={styles.sampleBadgeLightText}>Sample</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.gridTitle} numberOfLines={2}>{recipe.title}</Text>
             <View style={styles.gridFooter}>
               <View style={[styles.diffBadge, { backgroundColor: `${DifficultyColors[recipe.difficulty]}18` }]}>
@@ -337,6 +361,23 @@ const styles = StyleSheet.create({
   imgPlaceholder: { backgroundColor: Colors.bgMuted, alignItems: 'center', justifyContent: 'center' },
   imgPlaceholderText: { fontSize: 32, opacity: 0.5 },
   cardCategory: { fontSize: FontSize.xs.size, fontFamily: FontFamily.bold, color: Colors.primaryMid, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 2 },
+
+  vertTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
+  gridCategoryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
+  sampleBadge: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  sampleBadgeText: { fontSize: 10, fontFamily: FontFamily.medium, color: 'rgba(255,255,255,0.75)', letterSpacing: 0.3 },
+  sampleBadgeLight: {
+    backgroundColor: Colors.bgMuted,
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  sampleBadgeLightText: { fontSize: 10, fontFamily: FontFamily.medium, color: Colors.textFaint, letterSpacing: 0.3 },
 
   // Swipe actions
   swipeActions: { flexDirection: 'row', marginBottom: Spacing.sm + 2 },

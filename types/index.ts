@@ -56,6 +56,7 @@ export interface Recipe {
   cuisine: string | null;
   category: string | null;
   is_favorite: boolean;
+  is_sample?: boolean;
   tags: string[];
   created_at: string;
   updated_at: string;

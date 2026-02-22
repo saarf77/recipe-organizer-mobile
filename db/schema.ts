@@ -1,7 +1,7 @@
 // SQLite local schema definitions
 // Mirrors the Supabase schema with offline-first additions
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const CREATE_TABLES_SQL: string[] = [
   // ── profiles ─────────────────────────────────────────────────────────────
@@ -50,7 +50,8 @@ export const CREATE_TABLES_SQL: string[] = [
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_by          TEXT NOT NULL,
     is_deleted          INTEGER NOT NULL DEFAULT 0,
-    local_only          INTEGER NOT NULL DEFAULT 0
+    local_only          INTEGER NOT NULL DEFAULT 0,
+    is_sample           INTEGER NOT NULL DEFAULT 0
   )`,
 
   // ── ingredients ──────────────────────────────────────────────────────────
