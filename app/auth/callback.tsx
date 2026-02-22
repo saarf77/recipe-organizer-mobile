@@ -5,7 +5,7 @@ import { supabase } from '@/services/supabaseClient';
 import { Colors, Spacing, Radii, FontFamily, FontSize } from '@/constants';
 
 export default function AuthCallbackScreen() {
-  const params = useLocalSearchParams<{ token_hash?: string; type?: string }>();
+  const params = useLocalSearchParams<{ token_hash?: string; type?: string; code?: string }>();
 
   useEffect(() => {
     async function handle() {
@@ -29,17 +29,25 @@ export default function AuthCallbackScreen() {
         return;
       }
 
-      // ── Native: token_hash is passed as a query param via the deep link
+      // ── Native: handle both magic link (token_hash) and OAuth (code)
       if (params.token_hash && params.type === 'magiclink') {
         const { error } = await supabase.auth.verifyOtp({
           token_hash: params.token_hash,
           type: 'magiclink',
         });
-        if (!error) {
-          router.replace('/(tabs)');
-          return;
-        }
+        if (!error) { router.replace('/(tabs)'); return; }
       }
+
+      // OAuth PKCE code exchange
+      const fullUrl = typeof window !== 'undefined' ? window.location.href : '';
+      const code = params.code as string | undefined ?? new URL(fullUrl || 'http://x').searchParams.get('code');
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(
+          Platform.OS === 'web' ? fullUrl : `recipeorganizer://auth/callback?code=${code}`
+        );
+        if (!error) { router.replace('/(tabs)'); return; }
+      }
+
       router.replace('/auth/login');
     }
     handle();

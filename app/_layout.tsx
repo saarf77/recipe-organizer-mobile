@@ -1,3 +1,4 @@
+import 'react-native-get-random-values';
 import '../global.css';
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
@@ -61,6 +62,7 @@ export default function RootLayout() {
           <Stack.Screen name="auth/login" />
           <Stack.Screen name="auth/callback" />
           <Stack.Screen name="recipe/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="recipe/add" options={{ presentation: 'modal' }} />
           <Stack.Screen name="recipe/new" options={{ presentation: 'modal' }} />
           <Stack.Screen name="recipe/import-url" options={{ presentation: 'modal' }} />
           <Stack.Screen name="recipe/edit/[id]" options={{ presentation: 'modal' }} />

@@ -53,7 +53,8 @@
         }
       ],
       "expo-asset",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-web-browser"
     ],
     "scheme": "recipeorganizer",
     "experiments": {

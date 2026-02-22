@@ -173,7 +173,7 @@ export default function HomeScreen() {
               <Text style={styles.emptySubtitle}>Add your first recipe to get started</Text>
               <TouchableOpacity
                 style={styles.addFirstBtn}
-                onPress={() => router.push('/recipe/new')}
+                onPress={() => router.push('/recipe/add')}
               >
                 <Ionicons name="add" size={18} color={Colors.bgWhite} />
                 <Text style={styles.addFirstBtnText}>Add Recipe</Text>

@@ -10,7 +10,7 @@ import { Colors, FontFamily, FontSize, Shadows } from '@/constants';
 function FloatingAddButton() {
   const handlePress = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/recipe/new');
+    router.push('/recipe/add');
   };
 
   return (
